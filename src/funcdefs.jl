@@ -23,20 +23,35 @@ vectorise(P,ν, C) = vcat(SVector(P), ν, SVector(C))
 Access data stored in the container `u` so that it matches the shapes of H,F,c
 and points to the correct points in `u`. `T` is the dimension of the stochastic
 process.
+
+implemented by M. Mider in GuidedProposals.jl
 """
 function static_accessor_HFc(u::K, ::Val{T}) where {K<:Union{SVector,MVector},T}
     Hidx = SVector{T*T,Int64}(1:T*T)
     Fidx = SVector{T,Int64}((T*T+1):(T*T+T))
     reshape(u[Hidx], Size(T,T)), u[Fidx], u[T*T+T+1]
 end
+"""
+    PBridge
 
+        struct for partial bridges
+    ℙ:  target diffusion
+    ℙ̃:  auxiliary NclarDiffusion
+    tt: time grid for diffusion (including start and end time)
+    P:  P-values on tt
+    ν:  ν values on tt
+    C:  -C is an additive factor in the loglikelihood
+
+    constructor from incomsing triplet (PT, νT, cT) is given by 
+        PBridge(ℙ, ℙ̃, tt, PT, νT, CT) 
+"""
 struct PBridge{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
-    ℙ::Tℙ   # diffusion 
-    ℙ̃::Tℙ̃   # auxiliary process
-    tt::Vector{Float64}  # time grid
-    P::Vector{TP}        # P=ℙ values on time grid
-    ν::Vector{Tν}        # ν values on time grid
-    C::TC                # constant to compute h-function
+    ℙ::Tℙ   
+    ℙ̃::Tℙ̃   
+    tt::Vector{Float64}  
+    P::Vector{TP}      
+    ν::Vector{Tν}      
+    C::TC              
     PBridge(ℙ::Tℙ, ℙ̃::Tℙ̃, tt, Pt::Vector{TP}, νt::Vector{Tν}, C::TC) where {Tℙ,Tℙ̃,TP,Tν,TC} =
         new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TP,Tν,TC}(ℙ, ℙ̃, tt, Pt, νt, C)
 
@@ -61,29 +76,36 @@ struct PBridge{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
     end
 end
 
+"""
+    pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
+
+    Solve backward ODEs for `(P, ν, C)` starting from `(PT, νT, CT)`` on time grid `t``
+    Auxiliary process is given by ℙ̃
+    Writes into (Pt, νt)
+"""
 function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
-    access = Val{}(d)
+    
 
     function dPνC(s, y, ℙ̃)
         access = Val{}(d)
-        P, ν, _ = static_accessor_HFc(y, access)
+        P, ν, C = static_accessor_HFc(y, access)
         _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
         dP =  (_B * P) + (P * _B') - _a
         dν =  (_B * ν) + _β
         F = (P \ ν)
         dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a)))
+        # H, F, C = convert_PνC_to_HFC(P,ν,C)
+        # dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr(H * (_a))
         vectorise(dP, dν, dC)
     end
 
     Pt[end] = PT
     νt[end] = νT
     C = CT
-
+    access = Val{}(d)
     y = vectorise(PT, νT, CT)
-    println(νT)
-    println()
-    
+
     for i in length(t)-1:-1:1
         dt = t[i] - t[i+1]
         y = kernelrk4(dPνC, t[i+1], y, dt, ℙ̃)
@@ -96,7 +118,7 @@ end
 """
     init_HFC(v, L; ϵ=0.01)
 
-    First computes xT = L^(-1) * vT (Moore-Penrose inverse)    
+    First computes xT = L^(-1) * vT (Moore-Penrose inverse), a reasonable guess for the full state based on the partial observation vT
     Then convert artifical observation v ~ N(xT, ϵ^(-1) * I)
     to triplet  (H, F, C)
 """
@@ -132,20 +154,18 @@ end
 
 
 
-
-
+########### specify pars for 𝒫::PBridge
 P((i,t)::IndexedTime, x, 𝒫::PBridge) = 𝒫.P[i]
 ν((i,t)::IndexedTime, x, 𝒫::PBridge) = 𝒫.ν[i]
 r((i,t)::IndexedTime, x, 𝒫::PBridge) = (𝒫.P[i] \ (𝒫.ν[i] - x) )
 
 function Bridge._b((i,t)::IndexedTime, x, 𝒫::PBridge)  
-    Bridge.b(t, x, 𝒫.ℙ) + Bridge.a(t, x, 𝒫.ℙ) * r((i,t),x,𝒫)   # (𝒫.ν[i] - 𝒫.P[i]*x)
+    Bridge.b(t, x, 𝒫.ℙ) + Bridge.a(t, x, 𝒫.ℙ) * r((i,t),x,𝒫)   
 end
-
 
 Bridge.σ(t, x, 𝒫::PBridge) = Bridge.σ(t, x, 𝒫.ℙ)
 Bridge.a(t, x, 𝒫::PBridge) = Bridge.a(t, x, 𝒫.ℙ)
-Bridge.Γ(t, x, 𝒫::PBridge) = Bridge.Γ(t, x, 𝒫.ℙ)
+#Bridge.Γ(t, x, 𝒫::PBridge) = Bridge.Γ(t, x, 𝒫.ℙ)
 Bridge.constdiff(𝒫::PBridge) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
 
 function logh̃(x, 𝒫::PBridge) 
@@ -153,7 +173,7 @@ function logh̃(x, 𝒫::PBridge)
     -0.5 * x' * H1 * x + F1' * x - C    
 end
 
-function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge; skip = 0)
+function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge; skip = 0, include_h0=false)
     tt = X.tt
     xx = X.yy
 
@@ -172,7 +192,8 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge; skip = 0)
         end
         som *= dt 
     end
-    som + logh̃(X.yy[1], 𝒫)
+
+    som + (include_h0) * logh̃(X.yy[1], 𝒫)
 end
 
 
@@ -242,3 +263,5 @@ if false
     end
 
 end
+
+

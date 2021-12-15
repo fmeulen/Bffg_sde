@@ -24,7 +24,7 @@ skip_it = 500  #1000
 subsamples = 0:skip_it:iterations
 
 T = 0.5
-dt = 1/5000
+dt = 1/500
 τ(T) = (x) ->  x * (2-x/T)
 tt = τ(T).(0.:dt:T)
 
@@ -36,7 +36,7 @@ x0 = ℝ{3}(0.0, 0.0, 0.0)
 ℙ̃ = NclarDiffusionAux(ℙ.α, ℙ.ω, ℙ.σ)
 
 # set observatins scheme 
-easy_conditioning = true
+easy_conditioning = false
 obs_scheme =["full","firstcomponent"][1]
 
 if obs_scheme=="full"
@@ -54,6 +54,7 @@ m,  = size(LT)
 
 
 ρ = obs_scheme=="full" ? 0.85 : 0.95
+ρ = 0.0
 
 # solve Backward Recursion
 ϵ = 10e-2  
