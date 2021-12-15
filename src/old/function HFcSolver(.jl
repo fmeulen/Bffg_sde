@@ -52,3 +52,51 @@ function HFcSolver(
         )
     end
 end
+
+
+
+
+
+function solve_and_ll!(
+    XX,
+    WW,
+    P::GuidProp,
+    ::AbstractGuidingTermSolver{:outofplace},
+    y1;
+    skip=0
+)
+yy, ww, tt = XX.x, WW.x, XX.t
+N = length(XX)
+
+yy[1] = DD.value(y1)
+x = y1
+ll = 0.0
+for i in 1:(N-1)
+    add_to_ll = (i < N-skip)
+    s = tt[i]
+    dt = tt[i+1] - tt[i]
+    dW = ww[i+1] - ww[i]
+
+    r_i = ∇logρ(i, x, P)
+    b_i = DD.b(s, x, P.P_target)
+    btil_i = DD.b(s, x, P.P_aux)
+
+    σ_i = DD.σ(s, x, P.P_target)
+    a_i = σ_i*σ_i'
+
+    add_to_ll && (ll += dot(b_i-btil_i, r_i) * dt)
+
+    if !DD.constdiff(P)
+        H_i = H(i, x, P)
+        atil_i = DD.a(s, x, P.P_aux)
+        add_to_ll && (ll += 0.5*tr( (a_i - atil_i)*(r_i*r_i'-H_i') ) * dt)
+    end
+
+    x = x + (a_i*r_i + b_i)*dt + σ_i*dW
+
+    yy[i+1] = DD.value(x)
+
+    DD.bound_satisfied(P, yy[i+1]) || return false, -Inf
+end
+true, ll
+end
