@@ -1,9 +1,20 @@
-# function kernelr3(f, t, y, dt, ℙ)
-#     k1 = f(t, y, ℙ)
-#     k2 = f(t + 1/2*dt, y + 1/2*dt*k1, ℙ)
-#     k3 = f(t + 3/4*dt, y + 3/4*dt*k2, ℙ)
-#     y + dt*(2/9*k1 + 1/3*k2 + 4/9*k3)
-# end
+using Bridge, StaticArrays, Distributions
+using Test, Statistics, Random, LinearAlgebra
+using Bridge.Models
+using DelimitedFiles
+using DataFrames
+using CSV
+using ForwardDiff
+
+
+import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff
+import ForwardDiff: jacobian
+
+wdir = "/Users/frankvandermeulen/.julia/dev/Bffg_sde"
+cd(wdir)
+outdir= wdir * "/out/"
+
+
 
 function kernelrk4(f, t, y, dt, ℙ)
     k1 = f(t, y, ℙ)
@@ -42,20 +53,8 @@ end
 
 
 
-cd("/Users/frankvandermeulen/Sync/DOCUMENTS/onderzoek/code/diffbridges")
-outdir="/Users/frankvandermeulen/Sync/DOCUMENTS/onderzoek/code/diffbridges/out_nclar/"
 
 
-using Bridge, StaticArrays, Distributions
-using Test, Statistics, Random, LinearAlgebra
-using Bridge.Models
-using DelimitedFiles
-using DataFrames
-using CSV
-using ForwardDiff
-
-import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff
-import ForwardDiff: jacobian
 
 struct PBridge{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
     ℙ::Tℙ   # diffusion 
@@ -295,8 +294,8 @@ solve!(Euler(),Xᵒ, x0, W, 𝒫)
 solve!(Euler(),X, x0, W, 𝒫)
 ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
 
-using Plots
-plot(X.tt, getindex.(X.yy,1))
+# using Plots
+# plot(X.tt, getindex.(X.yy,1))
 
 
 # Fold = 𝒫.F
@@ -426,5 +425,39 @@ if false
 
 end
 
+
+################ plotting in R ############
+using RCall
+dd = df_iterates
+
+@rput dd
+@rput obs_scheme
+@rput outdir
+
+R"""
+library(ggplot2)
+library(tidyverse)
+theme_set(theme_bw(base_size = 13))
+
+vT = c(0.03125,   0.25,   1.0)                  #vT <- c(5/128,3/8,2)
+vTvec = rep(vT, nrow(dd)/3)
+
+dd$component <- as.factor(dd$component)
+dd <- dd %>% mutate(component=fct_recode(component,'component 1'='1','component 2'='2','component 3'='3'))%>% mutate(trueval = vTvec)
+
+# make figure
+p <- ggplot(mapping=aes(x=time,y=value,colour=iteration),data=dd) +
+  geom_path(aes(group=iteration)) + geom_hline(aes(yintercept=trueval)) +
+  facet_wrap(~component,ncol=1,scales='free_y')+
+  scale_colour_gradient(low='green',high='blue')+ylab("")
+show(p)
+
+# write to pdf
+fn <- paste0(outdir,obs_scheme,".pdf")
+pdf(fn,width=7,height=5)
+show(p)
+dev.off()    
+
+"""
 
 
