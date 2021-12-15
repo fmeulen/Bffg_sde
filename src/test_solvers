@@ -1,0 +1,102 @@
+# using DifferentialEquations
+# const DE=DifferentialEquations
+
+# function dPνC(y, ℙ̃, s) # note interchanged order of arguments
+#     access = Val{}(d)
+#     P, ν, C = static_accessor_HFc(y, access)
+#     _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+
+#     dP =  (_B * P) + (P * _B') - _a
+#     dν =  (_B * ν) + _β
+#     F = (P \ ν)
+#     dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a)))
+#     vectorise(dP, dν, dC)
+# end
+
+
+
+# prob = ODEProblem{false}(
+#     dPνC,   # increment
+#     vectorise(PT, νT, CT), # starting val
+#     (tt[end], tt[1]),   # time interval
+#     ℙ̃  # parameter
+#  )
+# access = Val{}(d)
+# TP = typeof(PT); Tν= typeof(νT); Tc = typeof(CT)
+# saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
+# callback = SavingCallback(
+#      (u,t,integrator) -> static_accessor_HFc(u, access),
+#      saved_values;
+#      saveat=reverse(tt), 
+#      tdir=-1
+#  )
+#  integrator = init(
+#      prob,
+#      #choices.solver,
+#      Tsit5(),
+#      callback=callback,
+#      save_everystep=false, # to prevent wasting memory allocations
+#  )
+# sol = DE.solve!(integrator)   # s
+
+# saved_t = saved_values.t
+# saved_y = saved_values.saveval
+# Pt = getindex.(saved_y,1)
+# νt = getindex.(saved_y,2)
+# Ct = getindex.(saved_y,3)[1]
+
+
+
+# putting it all together
+
+function pbridgeode2!(ℙ̃, t, (Pt, νt), (PT, νT, CT); solver=Tsit5())
+    function dPνC(y, ℙ̃, s) # note interchanged order of arguments
+        access = Val{}(d)
+        P, ν, C = static_accessor_HFc(y, access)
+        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+    
+        dP =  (_B * P) + (P * _B') - _a
+        dν =  (_B * ν) + _β
+        F = (P \ ν)
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a)))
+        vectorise(dP, dν, dC)
+    end
+    yT = vectorise(PT, νT, CT)
+    prob = ODEProblem{false}(
+            dPνC,   # increment
+            yT, # starting val
+            (tt[end], tt[1]),   # time interval
+            ℙ̃)  # parameter
+    access = Val{}(d)
+    TP = typeof(PT); Tν= typeof(νT); Tc = typeof(CT)
+    saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
+    callback = SavingCallback(
+        (u,t,integrator) -> static_accessor_HFc(u, access),
+        saved_values;
+        saveat=reverse(tt), 
+        tdir=-1
+    )
+    integrator = init(
+        prob,
+        solver,
+        callback=callback,
+        save_everystep=false, # to prevent wasting memory allocations
+    )
+    sol = DE.solve!(integrator)   # s
+    
+    #savedt = saved_values.t
+    ss = saved_values.saveval
+    reverse!(ss)
+    Pt .= getindex.(ss,1)
+    νt .= getindex.(ss,2)
+    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
+
+    Pt, νt, C
+end
+
+
+pbridgeode2!(ℙ̃, tt, (Pt, νt), (PT, νT, CT))
+νT[2],  CT, Pt[end-1], Pt[1]
+
+pbridgeode!(R3(), ℙ̃, tt, (Pt, νt), (PT, νT, CT))
+νT[2],  CT, Pt[end-1], Pt[1]

@@ -1,3 +1,7 @@
+# Implementation of bridge simulation for the  NCLAR(3)-model
+# Example 4.1 in https://arxiv.org/pdf/1810.01761v1.pdf
+# Note that this implementation uses the ODEs detailed in "Continuous-discrete smoothing of diffusions"
+
 using Bridge, StaticArrays, Distributions
 using Test, Statistics, Random, LinearAlgebra
 using Bridge.Models
@@ -10,12 +14,13 @@ using ForwardDiff
 import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff
 import ForwardDiff: jacobian
 
-wdir = "/Users/frankvandermeulen/.julia/dev/Bffg_sde"
+wdir = @__DIR__
 cd(wdir)
-outdir= wdir * "/out/"
-
-include("src/funcdefs.jl")
+outdir= joinpath(wdir, "out")
 include("nclar.jl")
+
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
+
 
 ################################  TESTING  ################################################
 # settings sampler
@@ -24,7 +29,7 @@ skip_it = 500  #1000
 subsamples = 0:skip_it:iterations
 
 T = 0.5
-dt = 1/5000
+dt = 1/500
 τ(T) = (x) ->  x * (2-x/T)
 tt = τ(T).(0.:dt:T)
 
@@ -36,7 +41,7 @@ x0 = ℝ{3}(0.0, 0.0, 0.0)
 ℙ̃ = NclarDiffusionAux(ℙ.α, ℙ.ω, ℙ.σ)
 
 # set observatins scheme 
-easy_conditioning = true
+easy_conditioning = false
 obs_scheme =["full","firstcomponent"][1]
 
 if obs_scheme=="full"
@@ -54,6 +59,7 @@ m,  = size(LT)
 
 
 ρ = obs_scheme=="full" ? 0.85 : 0.95
+ρ = 0.0
 
 # solve Backward Recursion
 ϵ = 10e-2  
@@ -125,6 +131,7 @@ for iter in 1:iterations
 end
 
 @info "Done."*"\x7"^6
+
 
 
 include("process_output.jl")

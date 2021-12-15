@@ -1,0 +1,15 @@
+Choice of observation schemes: full
+Easy conditioning (means going up to 1 for the rough component instead of 2): false
+Number of iterations: 3000
+Skip every 500 iterations, when saving to csv
+
+Starting point: [0.0, 0.0, 0.0]
+End time T: 0.5
+Endpoint v: [0.0390625, 0.375, 2.0]
+Noise Sigma: [1.0e-8 0.0 0.0; 0.0 1.0e-8 0.0; 0.0 0.0 1.0e-8]
+L: [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+
+Mesh width: 0.002
+rho (Crank-Nicholsen parameter: 0.0
+Average acceptance percentage: 100.0
+
