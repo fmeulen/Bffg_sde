@@ -9,5 +9,5 @@ L: [1.0 0.0]
 
 Mesh width: 0.002
 rho (Crank-Nicholsen parameter: 0.95
-Average acceptance percentage: 35.0
+Average acceptance percentage: 10.0
 

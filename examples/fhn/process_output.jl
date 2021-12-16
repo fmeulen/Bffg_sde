@@ -1,6 +1,6 @@
 # write mcmc iterates to csv file
 extractcomp(v,i) = map(x->x[i], v)
-
+d = dim(ℙ)
 iterates = [Any[s, tt[j], k, XX[i].yy[j][k]] for k in 1:d, j in 1:length(X), (i,s) in enumerate(subsamples) ][:]
 df_iterates = DataFrame(iteration=extractcomp(iterates,1),time=extractcomp(iterates,2), component=extractcomp(iterates,3), value=extractcomp(iterates,4))
 CSV.write(outdir*"iterates.csv",df_iterates)

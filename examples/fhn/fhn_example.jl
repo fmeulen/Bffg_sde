@@ -17,6 +17,8 @@ outdir= joinpath(wdir, "out")
 
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 
+aux_choice = ["linearised_end" "linearised_startend"  "matching"][2]
+include("fhn.jl")
 
 ################################  TESTING  ################################################
 # settings sampler
@@ -31,7 +33,7 @@ tt = τ(T).(0.:dt:T)
 
 sk = 0 # skipped in evaluating loglikelihood
 
-const d =2
+
 
 # specify observation scheme
 LT = @SMatrix [1. 0.]
@@ -39,99 +41,25 @@ LT = @SMatrix [1. 0.]
 ΣT = @SMatrix [Σdiagel]
 
 # specify target process
-struct FitzhughDiffusion <: ContinuousTimeProcess{ℝ{2}}
-    ϵ::Float64
-    s::Float64
-    γ::Float64
-    β::Float64
-    σ::Float64
+
+x0 = ℝ{2}(-0.5, -0.6)
+endpoint = ["first", "extreme"][2]
+
+if endpoint == "first"
+    vT = SVector{1}(-1.0)
+else endpoint == "extreme"
+    vT = SVector{1}(1.1)
 end
 
-Bridge.b(t, x, ℙ::FitzhughDiffusion) = ℝ{2}((x[1]-x[2]-x[1]^3+ℙ.s)/ℙ.ϵ, ℙ.γ*x[1]-x[2] +ℙ.β)
-Bridge.σ(t, x, ℙ::FitzhughDiffusion) = ℝ{2}(0.0, ℙ.σ)
-Bridge.constdiff(::FitzhughDiffusion) = true
 
 ℙ = FitzhughDiffusion(0.1, 0.0, 1.5, 0.8, 0.3) # Ditlevsen-Samson
-#P = FitzhughDiffusion(0.1, 0.0, 1.5, 0.8, 1.0)
-x0 = ℝ{2}(-0.5, -0.6)
 
-# Generate Data
-# if generate_data
-#      include("/Users/Frank/Sync/DOCUMENTS/onderzoek/code/diffbridges/truepaths_fh.jl")
-# end
-
-# specify auxiliary process
-struct FitzhughDiffusionAux <: ContinuousTimeProcess{ℝ{2}}
-    ϵ::Float64
-    s::Float64
-    γ::Float64
-    β::Float64
-    σ::Float64
-    t::Float64
-    u::Float64
-    T::Float64
-    v::Float64
-end
-
-function uv(t, ℙ::FitzhughDiffusionAux)
-    λ = (t - ℙ.t)/(ℙ.T - ℙ.t)
-    ℙ.v*λ + ℙ.u*(1-λ)
-end
-
-# for k1 in (1:3)
-#     for k2 in (1:2)
-# for k1 in (1:1)
-#     for k2 in (2:2)
-
-k1 = 2
-k2 = 2
-        Random.seed!(4)# this is what i used all the time
-        Random.seed!(44)
-        aux_choice = ["linearised_end" "linearised_startend"  "matching"][k1]
-        endpoint = ["first", "extreme"][k2]
-
-        # settings sampler
-        printiter = 100
-
-        if endpoint == "first"
-            #v = -0.959
-            vT = SVector{1}(-1.0)
-        elseif endpoint == "extreme"
-            #v = 0.633
-            vT = SVector{1}(1.1)
-        else
-            error("not implemented")
-        end
-
-        if aux_choice=="linearised_end"
-            Bridge.B(t, ℙ::FitzhughDiffusionAux) = @SMatrix [1/ℙ.ϵ-3*ℙ.v^2/ℙ.ϵ  -1/ℙ.ϵ; ℙ.γ -1.0]
-            Bridge.β(t, ℙ::FitzhughDiffusionAux) = ℝ{2}(ℙ.s/ℙ.ϵ+2*ℙ.v^3/ℙ.ϵ, ℙ.β)
-            ρ = endpoint=="extreme" ? 0.9 : 0.0
-        elseif aux_choice=="linearised_startend"
-            Bridge.B(t, ℙ::FitzhughDiffusionAux) = @SMatrix [1/ℙ.ϵ-3*uv(t, ℙ)^2/ℙ.ϵ  -1/ℙ.ϵ; ℙ.γ -1.0]
-            Bridge.β(t, ℙ::FitzhughDiffusionAux) = ℝ{2}(ℙ.s/ℙ.ϵ+2*uv(t, ℙ)^3/ℙ.ϵ, ℙ.β)
-            ρ = endpoint=="extreme" ? 0.98 : 0.0
-        else
-            Bridge.B(t, ℙ::FitzhughDiffusionAux) = @SMatrix [1/ℙ.ϵ  -1/ℙ.ϵ; ℙ.γ -1.0]
-            Bridge.β(t, ℙ::FitzhughDiffusionAux) = ℝ{2}(ℙ.s/ℙ.ϵ-(ℙ.v^3)/ℙ.ϵ, ℙ.β)
-            ρ = 0.99
-        end
-
-        Bridge.σ(t, ℙ::FitzhughDiffusionAux) = ℝ{2}(0.0, ℙ.σ)
-        Bridge.constdiff(::FitzhughDiffusionAux) = true
-
-        Bridge.b(t, x, ℙ::FitzhughDiffusionAux) = Bridge.B(t,ℙ) * x + Bridge.β(t,ℙ)
-        Bridge.a(t, ℙ::FitzhughDiffusionAux) = Bridge.σ(t,ℙ) * Bridge.σ(t, ℙ)'
-        Bridge.a(t, x, ℙ::FitzhughDiffusionAux) = Bridge.a(t,ℙ) 
-
-        ℙ̃ = FitzhughDiffusionAux(ℙ.ϵ, ℙ.s, ℙ.γ, ℙ.β, ℙ.σ, tt[1], x0[1], tt[end], vT[1])
-#     end
-# end
+ℙ̃ = FitzhughDiffusionAux(ℙ.ϵ, ℙ.s, ℙ.γ, ℙ.β, ℙ.σ, tt[1], x0[1], tt[end], vT[1])
 
 # solve Backward Recursion
 ϵ = 10e-2  
 
-Hinit, Finit, Cinit =  init_HFC(vT, LT; ϵ=ϵ)
+Hinit, Finit, Cinit =  init_HFC(vT, LT, dim(ℙ); ϵ=ϵ)
 Hobs, Fobs, Cobs = observation_HFC(vT, LT, ΣT)
 
 HT, FT, CT = fusion_HFC((Hinit, Finit, Cinit), (Hobs, Fobs, Cobs))

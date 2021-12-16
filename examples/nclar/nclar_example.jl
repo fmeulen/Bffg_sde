@@ -35,7 +35,7 @@ tt = τ(T).(0.:dt:T)
 
 sk = 0 # skipped in evaluating loglikelihood
 
-const d=3
+
 ℙ = NclarDiffusion(6.0, 2pi, 1.0)
 x0 = ℝ{3}(0.0, 0.0, 0.0)
 ℙ̃ = NclarDiffusionAux(ℙ.α, ℙ.ω, ℙ.σ)
@@ -59,11 +59,11 @@ m,  = size(LT)
 
 
 ρ = obs_scheme=="full" ? 0.85 : 0.95
-ρ = 0.0
+
 
 # solve Backward Recursion
 ϵ = 10e-2  
-Hinit, Finit, Cinit =  init_HFC(vT, LT; ϵ=ϵ)
+Hinit, Finit, Cinit =  init_HFC(vT, LT, dim(ℙ); ϵ=ϵ)
 Hobs, Fobs, Cobs = observation_HFC(vT, LT, ΣT)
 
 HT, FT, CT = fusion_HFC((Hinit, Finit, Cinit), (Hobs, Fobs, Cobs))

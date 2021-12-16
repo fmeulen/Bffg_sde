@@ -100,7 +100,7 @@ function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
     
 
     function dPνC(s, y, ℙ̃)
-        access = Val{}(d)
+        access = Val{}(dim(ℙ̃))
         P, ν, _ = static_accessor_HFc(y, access)
         _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
@@ -114,7 +114,7 @@ function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
     Pt[end] = PT
     νt[end] = νT
     C = CT
-    access = Val{}(d)
+    access = Val{}(dim(ℙ̃))
     y = vectorise(PT, νT, CT)
 
     for i in length(t)-1:-1:1
@@ -127,13 +127,14 @@ function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
 end
 
 """
-    init_HFC(v, L; ϵ=0.01)
+    init_HFC(v, L, d; ϵ=0.01)
 
+    d = dimension of the diffusion
     First computes xT = L^(-1) * vT (Moore-Penrose inverse), a reasonable guess for the full state based on the partial observation vT
     Then convert artifical observation v ~ N(xT, ϵ^(-1) * I)
     to triplet  (H, F, C)
 """
-function init_HFC(v, L; ϵ=0.01)
+function init_HFC(v, L, d::Int64; ϵ=0.01)
     P = ϵ^(-1)*SMatrix{d,d}(1.0I)
     xT = L\v
     z = zero(xT)
