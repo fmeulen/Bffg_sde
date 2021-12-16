@@ -213,58 +213,48 @@ end
 
 ################################################################################
 
-# do this later
-if false 
 
-    # solve ODEs using current Sampleℙath X (need to pass ℙ for that, instead of ℙ̃)
-    function pbridgeode!(::R3, ℙ, t, (νt, Pt), (νT, PT, CT), X)
-        Pt[end] = PT
-        νt[end] = νT
-        ν, P, C = νT, PT, CT
+function pbridgeode!(::R3, ℙ, t, (Pt, νt), (PT, νT, CT), X::SamplePath)
+    function dPνC(s, y, (ℙ,x))
+        access = Val{}(dim(ℙ))
+        P, ν, _ = static_accessor_HFc(y, access)
+        #_B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+        _B = jacobianb(s,x,ℙ)
+        _β = Bridge.b(s,x,ℙ) - _B*x
+        _σ = Bridge.σ(s,x,ℙ)
+        _a = Bridge.a(s,x,ℙ)
 
-
-        # function dP(s, y, (ℙ,x)) 
-        #     #ff(s,ℙ) = u -> Bridge.b(s,u,ℙ)
-        #     #B = jacobian(u->ff(s,ℙ)(u), x)
-        #     B = jacobianb(s,x,ℙ)
-        #     out = - B'*y - y*B + y*Bridge.a(s, x, ℙ)*y'
-        #     return out
-        #  end
-        
-        dP(s, y, (B̃, ã)) = - B̃'*y - y * B̃ + y*ã*y'
-
-
-        #dν(s, y, (P,ℙ̃)) = -Bridge.B(s, ℙ̃)'*y + P*Bridge.a(s, ℙ̃)*y  + P*Bridge.β(s, ℙ̃)
-        # function dν(s, y, (P,ℙ,x)) 
-        #     #B = jacobian(u->Bridge.b(s,u,ℙ),x)
-        #     B = jacobianb(s,x,ℙ)
-        #     out = -B'*y + P*Bridge.a(s, x, ℙ)*y + P*(Bridge.b(s,x,ℙ) - B*x)
-        #     return out
-        #  end
-
-        dν(s,y, (B̃, ã, β̃)) = -B̃'*y + P*ã*y + P*β̃
-
-        for i in length(t)-1:-1:1
-            dt = t[i] - t[i+1]
-            x = X.yy[i+1]
-            s = t[i+1]
-
-            B̃ = jacobianb(s,x,ℙ)
-            β̃ = Bridge.b(s,x,ℙ) - B̃*x
-            ã =  Bridge.a(s, x, ℙ)
-
-            C += ( β̃'*ν + 0.5*ν'*ã*ν - 0.5*tr(P*ã) ) * dt
-            #P = kernelr3(dP, t[i+1], P, dt, (ℙ,x))
-            P = kernelrk4(dP, t[i+1], P, dt, (B̃, ã))
-            #ν = kernelr3(dν, t[i+1], ν, dt, (P, ℙ, x))
-            ν = kernelrk4(dν, t[i+1], ν, dt, (B̃, ã, β̃))
-            νt[i] = ν
-            Pt[i] = P
-        end
-
-        νt, Pt, C
+        dP =  (_B * P) + (P * _B') - _a
+        dν =  (_B * ν) + _β
+        F = (P \ ν)
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a)))
+        vectorise(dP, dν, dC)
     end
 
+    Pt[end] = PT
+    νt[end] = νT
+    C = CT
+
+    access = Val{}(dim(ℙ))
+    y = vectorise(PT, νT, CT)
+
+    for i in length(t)-1:-1:1
+        dt = t[i] - t[i+1]
+
+        x = X.yy[i+1]
+    #            s = t[i+1]
+
+        y = kernelrk4(dPνC, t[i+1], y, dt, (ℙ,x))
+        Pt[i], νt[i], C = static_accessor_HFc(y, access)
+    end
+
+    Pt, νt, C
+end
+
+
+
+# do this later
+    #automatic differentiation jacobian of b at (t,x)
     if false
         ff(s,ℙ) = (u) -> Bridge.b(s,u,ℙ)
         s = 1.0
@@ -274,6 +264,6 @@ if false
         B = jacobian(ff(s,ℙ), x)
     end
 
-end
+
 
 

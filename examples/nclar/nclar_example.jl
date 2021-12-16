@@ -79,6 +79,13 @@ solve!(Euler(),Xᵒ, x0, W, 𝒫)
 solve!(Euler(),X, x0, W, 𝒫)
 ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
 
+
+𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT);
+𝒫X = PBridge(ℙ, ℙ̃, tt, PT, νT, CT, X);
+hcat(𝒫.ν, 𝒫X.ν)
+
+
+𝒫 = 𝒫X
 # using Plots
 # plot(X.tt, getindex.(X.yy,1))
 
