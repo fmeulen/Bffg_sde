@@ -20,11 +20,11 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 
 ################################  TESTING  ################################################
 # settings sampler
-iterations = 3_000 # 5*10^4
+iterations = 5_000 # 5*10^4
 skip_it = 500  #1000
 subsamples = 0:skip_it:iterations
 
-T = 0.5
+T = 2.0
 dt = 1/500
 τ(T) = (x) ->  x * (2-x/T)
 tt = τ(T).(0.:dt:T)
@@ -35,7 +35,7 @@ const d =2
 
 # specify observation scheme
 LT = @SMatrix [1. 0.]
-Σdiagel = 10^(-10)
+Σdiagel = 10^(-5)
 ΣT = @SMatrix [Σdiagel]
 
 # specify target process
@@ -78,17 +78,19 @@ function uv(t, ℙ::FitzhughDiffusionAux)
     ℙ.v*λ + ℙ.u*(1-λ)
 end
 
-for k1 in (1:3)
-    for k2 in (1:2)
+# for k1 in (1:3)
+#     for k2 in (1:2)
+# for k1 in (1:1)
+#     for k2 in (2:2)
+
+k1 = 2
+k2 = 2
         Random.seed!(4)# this is what i used all the time
         Random.seed!(44)
         aux_choice = ["linearised_end" "linearised_startend"  "matching"][k1]
         endpoint = ["first", "extreme"][k2]
 
         # settings sampler
-        iterations =  !(k1==3) ? 5*10^4 : 10*10^4
-        skip_it = 1000
-        subsamples = 0:skip_it:iterations
         printiter = 100
 
         if endpoint == "first"
@@ -106,7 +108,7 @@ for k1 in (1:3)
             Bridge.β(t, ℙ::FitzhughDiffusionAux) = ℝ{2}(ℙ.s/ℙ.ϵ+2*ℙ.v^3/ℙ.ϵ, ℙ.β)
             ρ = endpoint=="extreme" ? 0.9 : 0.0
         elseif aux_choice=="linearised_startend"
-            Bridge.B(t, P::FitzhughDiffusionAux) = @SMatrix [1/P.ϵ-3*uv(t, ℙ)^2/P.ϵ  -1/ℙ.ϵ; ℙ.γ -1.0]
+            Bridge.B(t, ℙ::FitzhughDiffusionAux) = @SMatrix [1/ℙ.ϵ-3*uv(t, ℙ)^2/ℙ.ϵ  -1/ℙ.ϵ; ℙ.γ -1.0]
             Bridge.β(t, ℙ::FitzhughDiffusionAux) = ℝ{2}(ℙ.s/ℙ.ϵ+2*uv(t, ℙ)^3/ℙ.ϵ, ℙ.β)
             ρ = endpoint=="extreme" ? 0.98 : 0.0
         else
@@ -120,10 +122,11 @@ for k1 in (1:3)
 
         Bridge.b(t, x, ℙ::FitzhughDiffusionAux) = Bridge.B(t,ℙ) * x + Bridge.β(t,ℙ)
         Bridge.a(t, ℙ::FitzhughDiffusionAux) = Bridge.σ(t,ℙ) * Bridge.σ(t, ℙ)'
+        Bridge.a(t, x, ℙ::FitzhughDiffusionAux) = Bridge.a(t,ℙ) 
 
         ℙ̃ = FitzhughDiffusionAux(ℙ.ϵ, ℙ.s, ℙ.γ, ℙ.β, ℙ.σ, tt[1], x0[1], tt[end], vT[1])
-    end
-end
+#     end
+# end
 
 # solve Backward Recursion
 ϵ = 10e-2  
@@ -137,6 +140,13 @@ PT, νT, CT = convert_HFC_to_PνC(HT,FT,CT)
 𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT);
 
 ####################### MH algorithm ###################
+# alternatively, if σ is defined as a matrix, then set
+if false
+    Bridge.σ(t, x, ℙ::FitzhughDiffusion) = @SMatrix [0.0;  ℙ.σ]
+    W = sample(tt, Wiener{ℝ{1}}())
+    X = solve(Euler(), x0, W, ℙ)
+end
+
 W = sample(tt, Wiener())
 X = solve(Euler(), x0, W, ℙ)
 Xᵒ = copy(X)
@@ -165,7 +175,7 @@ if 0 in subsamples
 end
 
 
-ρ = 0.5
+ρ = 0.95
 acc = 0
 
 for iter in 1:iterations

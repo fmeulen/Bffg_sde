@@ -72,7 +72,7 @@ PT, νT, CT = convert_HFC_to_PνC(HT,FT,CT)
 𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT);
 
 ####################### MH algorithm ###################
-W = sample(tt, Wiener())
+W = sample(tt, Wiener())  #  sample(tt, Wiener{ℝ{3}}())
 X = solve(Euler(), x0, W, ℙ)
 Xᵒ = copy(X)
 solve!(Euler(),Xᵒ, x0, W, 𝒫)

@@ -166,8 +166,9 @@ end
 
 
 ########### specify pars for 𝒫::PBridge
-P((i,t)::IndexedTime, x, 𝒫::PBridge) = 𝒫.P[i]
-ν((i,t)::IndexedTime, x, 𝒫::PBridge) = 𝒫.ν[i]
+# P((i,t)::IndexedTime, 𝒫::PBridge) = 𝒫.P[i]
+# ν((i,t)::IndexedTime, 𝒫::PBridge) = 𝒫.ν[i]
+
 r((i,t)::IndexedTime, x, 𝒫::PBridge) = (𝒫.P[i] \ (𝒫.ν[i] - x) )
 
 function Bridge._b((i,t)::IndexedTime, x, 𝒫::PBridge)  
@@ -195,13 +196,12 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge; skip = 0, include
         r̃ = r((i,s), x, 𝒫)
         dt = tt[i+1]-tt[i]
 
-        som += dot( Bridge._b((i,s), x, 𝒫.ℙ) - Bridge._b((i,s), x, 𝒫.ℙ̃), r̃) 
+        som += dot( Bridge._b((i,s), x, 𝒫.ℙ) - Bridge._b((i,s), x, 𝒫.ℙ̃), r̃) * dt
         if !constdiff(𝒫)
-            P = P((i,s), x, 𝒫)
-            som -= 0.5*tr( (a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃)) * P )   
-            som += 0.5 *( r̃'* ( a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃) ) * r̃ ) 
+            P = 𝒫.P[i]  #P((i,s), x, 𝒫)
+            som -= 0.5*tr( (a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃)) * P )   * dt
+            som += 0.5 *( r̃'* ( a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃) ) * r̃ ) * dt
         end
-        som *= dt 
     end
 
     som + (include_h0) * logh̃(X.yy[1], 𝒫)
