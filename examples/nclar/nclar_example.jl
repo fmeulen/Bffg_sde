@@ -106,7 +106,7 @@ for iter in 1:iterations
     global ll, acc, 𝒫
     sample!(W2, Wiener())
     #ρ = rand(Uniform(0.95,1.0))
-    Wᵒ.yy .= ρ*W.yy + sqrt(1-ρ^2)*W2.yy
+    Wᵒ.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*W2.yy
     solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
 
 

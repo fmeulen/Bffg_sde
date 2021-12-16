@@ -1,3 +1,8 @@
+"""
+    kernelrk4(f, t, y, dt, ℙ)
+
+    solver for Runge-Kutta 4 scheme
+"""
 function kernelrk4(f, t, y, dt, ℙ)
     k1 = f(t, y, ℙ)
     k2 = f(t + 0.5*dt, y + 0.5*k1*dt, ℙ)
@@ -6,6 +11,14 @@ function kernelrk4(f, t, y, dt, ℙ)
     y + dt*(k1 + 2*k2 + 2*k3 + k4)/6.0
 end
 
+"""
+    convert_HFC_to_PνC(H,F,C)
+
+    convert parametrisation 
+        exp(-c - 0.5 x' H x + F' x)
+    to 
+        exp(-c - 0.5 x'P^(-1) x + (P^(-1) nu)' x)
+"""
 function convert_HFC_to_PνC(H,F,C)
     P = inv(H)
     P, P*F, C
@@ -88,15 +101,13 @@ function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
 
     function dPνC(s, y, ℙ̃)
         access = Val{}(d)
-        P, ν, C = static_accessor_HFc(y, access)
+        P, ν, _ = static_accessor_HFc(y, access)
         _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
         dP =  (_B * P) + (P * _B') - _a
         dν =  (_B * ν) + _β
         F = (P \ ν)
         dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a)))
-        # H, F, C = convert_PνC_to_HFC(P,ν,C)
-        # dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr(H * (_a))
         vectorise(dP, dν, dC)
     end
 
@@ -123,7 +134,7 @@ end
     to triplet  (H, F, C)
 """
 function init_HFC(v, L; ϵ=0.01)
-    P = ϵ^(-1)*SMatrix{3,3}(1.0I)
+    P = ϵ^(-1)*SMatrix{d,d}(1.0I)
     xT = L\v
     z = zero(xT)
     C = -logpdf(Bridge.Gaussian(z, P), z) 
