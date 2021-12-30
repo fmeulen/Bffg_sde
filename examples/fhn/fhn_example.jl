@@ -23,10 +23,11 @@ include("fhn.jl")
 ################################  TESTING  ################################################
 # settings sampler
 iterations = 5_000 # 5*10^4
-skip_it = 500  #1000
+skip_it = 100  #1000
 subsamples = 0:skip_it:iterations
 
-T = 2.0
+T = 2.0 # original setting
+T = 25.0
 dt = 1/500
 τ(T) = (x) ->  x * (2-x/T)
 tt = τ(T).(0.:dt:T)
@@ -37,7 +38,7 @@ sk = 0 # skipped in evaluating loglikelihood
 
 # specify observation scheme
 LT = @SMatrix [1. 0.]
-Σdiagel = 10^(-5)
+Σdiagel = 10^(-2)
 ΣT = @SMatrix [Σdiagel]
 
 # specify target process

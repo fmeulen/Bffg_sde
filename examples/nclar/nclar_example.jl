@@ -9,6 +9,7 @@ using DelimitedFiles
 using DataFrames
 using CSV
 using ForwardDiff
+using DifferentialEquations
 
 
 import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff
@@ -24,11 +25,11 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 
 ################################  TESTING  ################################################
 # settings sampler
-iterations = 3_000 # 5*10^4
+iterations = 5_000 # 5*10^4
 skip_it = 500  #1000
 subsamples = 0:skip_it:iterations
 
-T = 0.5
+T = .5
 dt = 1/500
 τ(T) = (x) ->  x * (2-x/T)
 tt = τ(T).(0.:dt:T)
@@ -36,12 +37,13 @@ tt = τ(T).(0.:dt:T)
 sk = 0 # skipped in evaluating loglikelihood
 
 
-ℙ = NclarDiffusion(6.0, 2pi, 1.0)
+ℙ = NclarDiffusion(6.0, 2pi, 1.0)  # original setting
+#ℙ = NclarDiffusion(16.0, 2pi, 4.0) 
 x0 = ℝ{3}(0.0, 0.0, 0.0)
 ℙ̃ = NclarDiffusionAux(ℙ.α, ℙ.ω, ℙ.σ)
 
 # set observatins scheme 
-easy_conditioning = false
+easy_conditioning = true
 obs_scheme =["full","firstcomponent"][1]
 
 if obs_scheme=="full"
@@ -52,13 +54,15 @@ if obs_scheme=="firstcomponent"
     LT = @SMatrix [1. 0. 0.]
     vT = easy_conditioning ? ℝ{1}(1/32) : ℝ{1}(5/128)
 end
+#vT =  ℝ{1}(5.0)
+
 m,  = size(LT)
 
-Σdiagel = 10e-9
+Σdiagel = 10e-6
 ΣT = SMatrix{m,m}(Σdiagel*I)
 
 
-ρ = obs_scheme=="full" ? 0.85 : 0.95
+ρ = obs_scheme=="full" ? 0.85 : 0.99
 
 
 # solve Backward Recursion
@@ -69,7 +73,26 @@ Hobs, Fobs, Cobs = observation_HFC(vT, LT, ΣT)
 HT, FT, CT = fusion_HFC((Hinit, Finit, Cinit), (Hobs, Fobs, Cobs))
 PT, νT, CT = convert_HFC_to_PνC(HT,FT,CT)
 
-𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT);
+solv = DE(Tsit5())
+solv = DE(Vern7())
+
+𝒫 = PBridge(RK4(), ℙ, ℙ̃, tt, PT, νT, CT)
+𝒫2 = PBridge(solv, ℙ, ℙ̃, tt, PT, νT, CT)
+𝒫3 = PBridge(AssumedDensityFiltering(Tsit5()), ℙ, ℙ̃, tt, PT, νT, CT)
+
+𝒫HFC = PBridge_HFC(RK4(), ℙ, ℙ̃, tt, HT, FT, CT)
+𝒫HFC2 = PBridge_HFC(solv, ℙ, ℙ̃, tt, HT, FT, CT)
+
+hcat(𝒫.ν, 𝒫2.ν)
+hcat(𝒫HFC.F, 𝒫HFC2.F)
+
+# check
+𝒫HFC.H[1] * 𝒫.P[1]
+𝒫HFC2.H[1] * 𝒫2.P[1]
+
+𝒫 = 𝒫3 # 𝒫HFC2
+
+
 
 ####################### MH algorithm ###################
 W = sample(tt, Wiener())  #  sample(tt, Wiener{ℝ{3}}())
@@ -80,12 +103,12 @@ solve!(Euler(),X, x0, W, 𝒫)
 ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
 
 
-𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT);
-𝒫X = PBridge(ℙ, ℙ̃, tt, PT, νT, CT, X);
-hcat(𝒫.ν, 𝒫X.ν)
+# 𝒫 = PBridge(solv,ℙ, ℙ̃, tt, PT, νT, CT);
+# 𝒫X = PBridge(ℙ, ℙ̃, tt, PT, νT, CT, X);
+# hcat(𝒫.ν, 𝒫X.ν)
 
 
-𝒫 = 𝒫X
+#𝒫 = 𝒫X
 # using Plots
 # plot(X.tt, getindex.(X.yy,1))
 
@@ -126,10 +149,14 @@ for iter in 1:iterations
         ll = llᵒ
         print("✓")
         acc +=1
-        # 𝒫 = PBridge(ℙ, ℙ̃, tt, FT, HT, CT, X)
-        # ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
+     
 
     end
+
+    # if iter==1000
+    #     𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT, X)
+    #     ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
+    # end
 
     println()
     if iter in subsamples
@@ -142,6 +169,7 @@ end
 
 
 include("process_output.jl")
+
 
 
 

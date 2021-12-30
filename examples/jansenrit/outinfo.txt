@@ -1,0 +1,13 @@
+Number of iterations: 3000
+Skip every 500 iterations, when saving to csv
+
+Starting point: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+End time T: 3.4
+Endpoint v: [-1737.4328789621059]
+Noise Sigma: [1.0e-5;;]
+L: [0.0 1.0 -1.0 0.0 0.0 0.0]
+
+Mesh width: 0.002
+rho (Crank-Nicholsen parameter: 0.9
+Average acceptance percentage: 2.0
+

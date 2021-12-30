@@ -44,6 +44,21 @@ function static_accessor_HFc(u::K, ::Val{T}) where {K<:Union{SVector,MVector},T}
     Fidx = SVector{T,Int64}((T*T+1):(T*T+T))
     reshape(u[Hidx], Size(T,T)), u[Fidx], u[T*T+T+1]
 end
+
+
+abstract type Solver end
+
+struct RK4 <: Solver end
+struct DE{T} <: Solver 
+    solvertype::T
+end
+
+struct Adaptive <: Solver end
+    
+struct AssumedDensityFiltering{T} <: Solver 
+    solvertype::T
+end
+
 """
     PBridge
 
@@ -69,34 +84,55 @@ struct PBridge{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
         new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TP,Tν,TC}(ℙ, ℙ̃, tt, Pt, νt, C)
 
     # constructor: provide (timegrid, ℙ, ℙ̃, νT, PT, CT)    
-    function PBridge(ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
+    function PBridge(::RK4, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
         tt = collect(tt_)
         N = length(tt)
         Pt = zeros(TP, N)
         νt = zeros(Tν, N)
-        _, _, C = pbridgeode!(R3(), ℙ̃, tt, (Pt, νt), (PT, νT, CT))
+        _, _, C = pbridgeode!(RK4(), ℙ̃, tt, (Pt, νt), (PT, νT, CT))
         PBridge(ℙ, ℙ̃, tt, Pt, νt, C)
     end
 
-    # 2nd constructor (use also samplepath X in backward ODEs): provide (timegrid, ℙ, νT, PT, CT, X::Sampleℙath)    
-    function PBridge(ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT, X::SamplePath) where  {TP, Tν}
+    
+    function PBridge(D::DE, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
         tt = collect(tt_)
         N = length(tt)
         Pt = zeros(TP, N)
         νt = zeros(Tν, N)
-        _, _, C = pbridgeode!(R3(), ℙ, tt, (Pt, νt), (PT, νT, CT), X)
+        _, _, C = pbridgeode!(D, ℙ̃, tt, (Pt, νt), (PT, νT, CT))
+        PBridge(ℙ, ℙ̃, tt, Pt, νt, C)
+    end
+
+    function PBridge(D::AssumedDensityFiltering, ℙ,  ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
+        tt = collect(tt_)
+        N = length(tt)
+        Pt = zeros(TP, N)
+        νt = zeros(Tν, N)
+        _, _, C = pbridgeode!(D, ℙ, tt, (Pt, νt), (PT, νT, CT))
+        PBridge(ℙ, ℙ̃, tt, Pt, νt, C)
+    end
+
+
+
+    # 2nd constructor (use also samplepath X in backward ODEs): provide (timegrid, ℙ, νT, PT, CT, X::Sampleℙath)    
+    function PBridge(::Adaptive, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT, X::SamplePath) where  {TP, Tν}
+        tt = collect(tt_)
+        N = length(tt)
+        Pt = zeros(TP, N)
+        νt = zeros(Tν, N)
+        _, _, C = pbridgeode!(Adaptive(), ℙ, tt, (Pt, νt), (PT, νT, CT), X)
         PBridge(ℙ, ℙ̃, tt, Pt, νt, C)
     end
 end
 
 """
-    pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
+    pbridgeode!(::RK4, ℙ̃, t, (Pt, νt), (PT, νT, CT))
 
     Solve backward ODEs for `(P, ν, C)` starting from `(PT, νT, CT)`` on time grid `t``
     Auxiliary process is given by ℙ̃
     Writes into (Pt, νt)
 """
-function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
+function pbridgeode!(::RK4, ℙ̃, t, (Pt, νt), (PT, νT, CT))
     
 
     function dPνC(s, y, ℙ̃)
@@ -125,6 +161,108 @@ function pbridgeode!(::R3, ℙ̃, t, (Pt, νt), (PT, νT, CT))
 
     Pt, νt, C
 end
+
+#---------- also for HFC --------------------
+"""
+    PBridge_HFC
+
+        struct for partial bridges
+    ℙ:  target diffusion
+    ℙ̃:  auxiliary NclarDiffusion
+    tt: time grid for diffusion (including start and end time)
+    H:  H-values on tt
+    F:  F values on tt
+    C:  -C is an additive factor in the loglikelihood
+
+    constructor from incomsing triplet (PT, νT, cT) is given by 
+        PBridge_HFC(ℙ, ℙ̃, tt, PT, νT, CT) 
+"""
+struct PBridge_HFC{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
+    ℙ::Tℙ   
+    ℙ̃::Tℙ̃   
+    tt::Vector{Float64}  
+    H::Vector{TP}      
+    F::Vector{Tν}      
+    C::TC              
+    PBridge_HFC(ℙ::Tℙ, ℙ̃::Tℙ̃, tt, Ht::Vector{TP}, Ft::Vector{Tν}, C::TC) where {Tℙ,Tℙ̃,TP,Tν,TC} =
+        new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TP,Tν,TC}(ℙ, ℙ̃, tt, Ht, Ft, C)
+
+    # constructor: provide (timegrid, ℙ, ℙ̃, νT, PT, CT)    
+    function PBridge_HFC(::RK4, ℙ, ℙ̃, tt_, HT::TP, FT::Tν, CT) where {TP, Tν}
+        tt = collect(tt_)
+        N = length(tt)
+        Ht = zeros(TP, N)
+        Ft = zeros(Tν, N)
+        _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
+        PBridge_HFC(ℙ, ℙ̃, tt, Ht, Ft, C)
+    end
+
+    
+    function PBridge_HFC(D::DE, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
+        tt = collect(tt_)
+        N = length(tt)
+        Pt = zeros(TP, N)
+        νt = zeros(Tν, N)
+        _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Pt, νt), (PT, νT, CT))
+        PBridge_HFC(ℙ, ℙ̃, tt, Pt, νt, C)
+    end
+
+
+    # # 2nd constructor (use also samplepath X in backward ODEs): provide (timegrid, ℙ, νT, PT, CT, X::Sampleℙath)    
+    # function PBridge_HFC(::Adaptive, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT, X::SamplePath) where  {TP, Tν}
+    #     tt = collect(tt_)
+    #     N = length(tt)
+    #     Pt = zeros(TP, N)
+    #     νt = zeros(Tν, N)
+    #     _, _, C = pbridgeode_HFC!(Adaptive(), ℙ, tt, (Pt, νt), (PT, νT, CT), X)
+    #     PBridge(ℙ, ℙ̃, tt, Pt, νt, C)
+    # end
+end
+
+"""
+    pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
+
+    Solve backward ODEs for `(H, F, C)` starting from `(HT, FT, CT)`` on time grid `t``
+    Auxiliary process is given by ℙ̃
+    Writes into (Ht, Ft)
+"""
+function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
+    
+
+    function dHFC(s, y, ℙ̃)
+        access = Val{}(dim(ℙ̃))
+        H, F, _ = static_accessor_HFc(y, access)
+        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+
+        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
+        dF = - (_B' * F) + H * (_a * F + _β) 
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
+        vectorise(dH, dF, dC)
+    end
+
+    Ht[end] = HT
+    Ft[end] = FT
+    C = CT
+    access = Val{}(dim(ℙ̃))
+    y = vectorise(HT, FT, CT)
+
+    for i in length(t)-1:-1:1
+        dt = t[i] - t[i+1]
+        y = kernelrk4(dHFC, t[i+1], y, dt, ℙ̃)
+        Ht[i], Ft[i], C = static_accessor_HFc(y, access)
+    end
+
+    Ht, Ft, C
+end
+
+
+
+
+#---------------------------------------------
+
+
+
+
 
 """
     init_HFC(v, L, d; ϵ=0.01)
@@ -172,17 +310,17 @@ end
 
 r((i,t)::IndexedTime, x, 𝒫::PBridge) = (𝒫.P[i] \ (𝒫.ν[i] - x) )
 
-function Bridge._b((i,t)::IndexedTime, x, 𝒫::PBridge)  
+function Bridge._b((i,t)::IndexedTime, x, 𝒫::Union{PBridge_HFC, PBridge})  
     Bridge.b(t, x, 𝒫.ℙ) + Bridge.a(t, x, 𝒫.ℙ) * r((i,t),x,𝒫)   
 end
 
-Bridge.σ(t, x, 𝒫::PBridge) = Bridge.σ(t, x, 𝒫.ℙ)
-Bridge.a(t, x, 𝒫::PBridge) = Bridge.a(t, x, 𝒫.ℙ)
+Bridge.σ(t, x, 𝒫::Union{PBridge_HFC, PBridge}) = Bridge.σ(t, x, 𝒫.ℙ)
+Bridge.a(t, x, 𝒫::Union{PBridge_HFC, PBridge}) = Bridge.a(t, x, 𝒫.ℙ)
 #Bridge.Γ(t, x, 𝒫::PBridge) = Bridge.Γ(t, x, 𝒫.ℙ)
-Bridge.constdiff(𝒫::PBridge) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
+Bridge.constdiff(𝒫::Union{PBridge_HFC, PBridge}) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
 
 function logh̃(x, 𝒫::PBridge) 
-    H1, F1, C = convert_PνC_to_HFC(𝒫.P[1], 𝒫.ν[1],𝒫.C)
+    H1, F1, C = convert_PνC_to_HFC(𝒫.P[1], 𝒫.ν[1], 𝒫.C)
     -0.5 * x' * H1 * x + F1' * x - C    
 end
 
@@ -200,8 +338,37 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge; skip = 0, include
         som += dot( Bridge._b((i,s), x, 𝒫.ℙ) - Bridge._b((i,s), x, 𝒫.ℙ̃), r̃) * dt
         if !constdiff(𝒫)
             P = 𝒫.P[i]  #P((i,s), x, 𝒫)
-            som -= 0.5*tr( (a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃)) * P )   * dt
-            som += 0.5 *( r̃'* ( a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃) ) * r̃ ) * dt
+            som -= 0.5*tr( (a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃)) / P )   * dt
+            som += 0.5 * ( r̃' * ( a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃) ) * r̃)  * dt
+        end
+    end
+
+    som + (include_h0) * logh̃(X.yy[1], 𝒫)
+end
+
+
+#------ also for HFC   PBridge_HFC
+r((i,t)::IndexedTime, x, 𝒫::PBridge_HFC) = 𝒫.F[i] - 𝒫.H[i] * x 
+
+function logh̃(x, 𝒫::PBridge_HFC) 
+    -0.5 * x' * 𝒫.H[1] * x + 𝒫.F[1]' * x - 𝒫.C    
+end
+
+function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge_HFC; skip = 0, include_h0=false)
+    tt = X.tt
+    xx = X.yy
+
+    som::Float64 = 0.
+    for i in 1:length(tt)-1-skip #skip last value, summing over n-1 elements
+        s = tt[i]
+        x = xx[i]
+        r̃ = r((i,s), x, 𝒫)
+        dt = tt[i+1]-tt[i]
+
+        som += dot( Bridge._b((i,s), x, 𝒫.ℙ) - Bridge._b((i,s), x, 𝒫.ℙ̃), r̃) * dt
+        if !constdiff(𝒫)
+            som -= 0.5*tr( (a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃)) * 𝒫.H[i] )   * dt
+            som += 0.5 * ( r̃' * ( a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃) ) * r̃)  * dt
         end
     end
 
@@ -213,8 +380,158 @@ end
 
 ################################################################################
 
+function pbridgeode!(D::DE, ℙ̃, t, (Pt, νt), (PT, νT, CT))
+    function dPνC(y, ℙ̃, s) # note interchanged order of arguments
+        access = Val{}(dim(ℙ̃))
+        P, ν, C = static_accessor_HFc(y, access)
+        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+    
+        dP =  (_B * P) + (P * _B') - _a
+        dν =  (_B * ν) + _β
+        F = (P \ ν)
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a)))
+        vectorise(dP, dν, dC)
+    end
+    yT = vectorise(PT, νT, CT)
+    prob = ODEProblem{false}(
+            dPνC,   # increment
+            yT, # starting val
+            (tt[end], tt[1]),   # time interval
+            ℙ̃)  # parameter
+    access = Val{}(dim(ℙ̃))
+    TP = typeof(PT); Tν= typeof(νT); Tc = typeof(CT)
+    saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
+    callback = SavingCallback(
+        (u,t,integrator) -> static_accessor_HFc(u, access),
+        saved_values;
+        saveat=reverse(tt), 
+        tdir=-1
+    )
+    integrator = init(
+        prob,
+        D.solvertype,
+        callback=callback,
+        save_everystep=false, # to prevent wasting memory allocations
+    )
+    sol = DifferentialEquations.solve!(integrator)   # s
+    
+    savedt = saved_values.t
+    ss = saved_values.saveval
+    reverse!(ss)
+    for i ∈ eachindex(savedt)
+        Pt[i] = getindex.(ss,1)[i]
+        νt[i] = getindex.(ss,2)[i]
+    end
+    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
 
-function pbridgeode!(::R3, ℙ, t, (Pt, νt), (PT, νT, CT), X::SamplePath)
+    Pt, νt, C
+end
+
+# to adjust 
+function pbridgeode!(D::AssumedDensityFiltering, ℙ, t, (Pt, νt), (PT, νT, CT))
+    function dPνC(y, ℙ, s) # note interchanged order of arguments
+        access = Val{}(dim(ℙ))
+        P, ν, C = static_accessor_HFc(y, access)
+
+        _B = jacobianb(s,ν,ℙ) # should be a function of (s,x)
+        #_β = Bridge.b(s,x,ℙ) - _B*x
+        _σ = Bridge.σ(s,ν,ℙ)
+        _a = Bridge.a(s,ν,ℙ)
+    
+        dP =  (_B * P) + (P * _B') - _a
+        dν =  Bridge.b(s,ν, ℙ)
+        F = (P \ ν)
+        dC =  0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a))) #+ dot(_β, F) # CHECK
+        vectorise(dP, dν, dC)
+    end
+    yT = vectorise(PT, νT, CT)
+    prob = ODEProblem{false}(
+            dPνC,   # increment
+            yT, # starting val
+            (tt[end], tt[1]),   # time interval
+            ℙ)  # parameter
+    access = Val{}(dim(ℙ))
+    TP = typeof(PT); Tν= typeof(νT); Tc = typeof(CT)
+    saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
+    callback = SavingCallback(
+        (u,t,integrator) -> static_accessor_HFc(u, access),
+        saved_values;
+        saveat=reverse(tt), 
+        tdir=-1
+    )
+    integrator = init(
+        prob,
+        D.solvertype,
+        callback=callback,
+        save_everystep=false, # to prevent wasting memory allocations
+    )
+    sol = DifferentialEquations.solve!(integrator)   # s
+    
+    savedt = saved_values.t
+    ss = saved_values.saveval
+    reverse!(ss)
+    for i ∈ eachindex(savedt)
+        Pt[i] = getindex.(ss,1)[i]
+        νt[i] = getindex.(ss,2)[i]
+    end
+    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
+
+    Pt, νt, C
+end
+
+
+
+function pbridgeode_HFC!(D::DE, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
+    function dHFC(y, ℙ̃, s) # note interchanged order of arguments
+        access = Val{}(dim(ℙ̃))
+        H, F, C = static_accessor_HFc(y, access)
+        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+    
+        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
+        dF = - (_B' * F) + H * (_a * F + _β) 
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
+        vectorise(dH, dF, dC)
+    end
+    yT = vectorise(HT, FT, CT)
+    prob = ODEProblem{false}(
+            dHFC,   # increment
+            yT, # starting val
+            (tt[end], tt[1]),   # time interval
+            ℙ̃)  # parameter
+    access = Val{}(dim(ℙ̃))
+    TP = typeof(HT); Tν= typeof(FT); Tc = typeof(CT)
+    saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
+    callback = SavingCallback(
+        (u,t,integrator) -> static_accessor_HFc(u, access),
+        saved_values;
+        saveat=reverse(tt), 
+        tdir=-1
+    )
+    integrator = init(
+        prob,
+        D.solvertype,
+        callback=callback,
+        save_everystep=false, # to prevent wasting memory allocations
+    )
+    sol = DifferentialEquations.solve!(integrator)   # s
+    
+    savedt = saved_values.t
+    ss = saved_values.saveval
+    reverse!(ss)
+    for i ∈ eachindex(savedt)
+        Ht[i] = getindex.(ss,1)[i]
+        Ft[i] = getindex.(ss,2)[i]
+    end
+    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
+
+    Ht, Ft, C
+end
+
+
+
+################################################################################
+
+function pbridgeode!(::Adaptive, ℙ, t, (Pt, νt), (PT, νT, CT), X::SamplePath)
     function dPνC(s, y, (ℙ,x))
         access = Val{}(dim(ℙ))
         P, ν, _ = static_accessor_HFc(y, access)
@@ -241,7 +558,7 @@ function pbridgeode!(::R3, ℙ, t, (Pt, νt), (PT, νT, CT), X::SamplePath)
     for i in length(t)-1:-1:1
         dt = t[i] - t[i+1]
 
-        x = X.yy[i+1]
+        x = X.yy[i]
     #            s = t[i+1]
 
         y = kernelrk4(dPνC, t[i+1], y, dt, (ℙ,x))
