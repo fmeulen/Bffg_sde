@@ -1,15 +1,15 @@
 Choice of observation schemes: firstcomponent
 Easy conditioning (means going up to 1 for the rough component instead of 2): true
-Number of iterations: 13000
+Number of iterations: 5000
 Skip every 500 iterations, when saving to csv
 
 Starting point: [0.0, 0.0, 0.0]
 End time T: 0.5
 Endpoint v: [0.03125]
-Noise Sigma: [1.0e-6;;]
+Noise Sigma: [1.0e-8;;]
 L: [1.0 0.0 0.0]
 
 Mesh width: 0.002
 rho (Crank-Nicholsen parameter: 0.99
-Average acceptance percentage: 59.0
+Average acceptance percentage: 68.0
 

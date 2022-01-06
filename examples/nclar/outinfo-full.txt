@@ -4,12 +4,12 @@ Number of iterations: 5000
 Skip every 500 iterations, when saving to csv
 
 Starting point: [0.0, 0.0, 0.0]
-End time T: 0.5
+End time T: 0.15
 Endpoint v: [0.03125, 0.25, 1.0]
-Noise Sigma: [1.0e-5 0.0 0.0; 0.0 1.0e-5 0.0; 0.0 0.0 1.0e-5]
+Noise Sigma: [0.0001 0.0 0.0; 0.0 0.0001 0.0; 0.0 0.0 0.0001]
 L: [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
 
 Mesh width: 0.002
 rho (Crank-Nicholsen parameter: 0.85
-Average acceptance percentage: 23.0
+Average acceptance percentage: 64.0
 

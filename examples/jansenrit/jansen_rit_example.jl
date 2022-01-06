@@ -1,7 +1,3 @@
-# Implementation of bridge simulation for the  NCLAR(3)-model
-# Example 4.1 in https://arxiv.org/pdf/1810.01761v1.pdf
-# Note that this implementation uses the ODEs detailed in "Continuous-discrete smoothing of diffusions"
-
 using Bridge, StaticArrays, Distributions
 using Test, Statistics, Random, LinearAlgebra
 using Bridge.Models
@@ -26,149 +22,148 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 ################################  TESTING  ################################################
 # settings sampler
 iterations = 3_000 # 5*10^4
-skip_it = 500  #1000
+skip_it = 100  #1000
 subsamples = 0:skip_it:iterations
 
-T = 3.4
-dt = 1/500
-τ(T) = (x) ->  x * (2-x/T)
-tt = τ(T).(0.:dt:T)
+T = 10.0
 
 sk = 0 # skipped in evaluating loglikelihood
 
 θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
-θtrue =[0.0, 100.0, 0.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 00.0, 2000.0]  
-θtrue =[3.25, 1.0, 22.0, 0.5, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 20.0]  # adjust a and b
+# θtrue =[0.0, 100.0, 0.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 00.0, 2000.0]  
+# θtrue =[3.25, 1.0, 22.0, 0.5, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 20.0]  # adjust a and b
 
 ℙ = JansenRitDiffusion(θtrue...)
 x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
-x0 = @SVector zeros(dim(ℙ))
+#x0 = @SVector zeros(dim(ℙ))
 ℙ̃ = JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, T)
 
-
+#---- generate test data
 Random.seed!(4)
-W = sample(tt, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
-Xf = solve(Euler(), x0, W, ℙ)
-#plot(X.tt, getindex.(X.yy,2))
+W = sample((-1.0):0.001:T, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
+Xf_prelim = solve(Euler(), x0, W, ℙ)
+# drop initial nonstationary behaviour
+Xf = SamplePath(Xf_prelim.tt[1001:end], Xf_prelim.yy[1001:end])
+x0 = Xf.yy[1]
+using Plots
+k = 3; plot(Xf.tt, getindex.(Xf.yy,k))
 
-LT = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
-xT = Xf.yy[end]
-vT = LT * xT
 
+#------  set observations
+L = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
 m,  = size(LT)
+Σdiagel = 10e-9
+Σ = SMatrix{m,m}(Σdiagel*I)
 
-Σdiagel = 10e-6
-ΣT = SMatrix{m,m}(Σdiagel*I)
+obstimes = Xf.tt[1:100:end]
+obsvals = map(x -> L*x, Xf.yy[1:100:end])
+obs = Observation[]
+for i ∈ eachindex(obsvals)
+    push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
+end
 
 
-ρ = 0.9
 
 
-# solve Backward Recursion
+# Backwards filtering
 ϵ = 10e-2  
 Hinit, Finit, Cinit =  init_HFC(vT, LT, dim(ℙ); ϵ=ϵ)
-Hobs, Fobs, Cobs = observation_HFC(vT, LT, ΣT)
+push!(obs, Observation(0,0,0,0, Hinit, Finit, Cinit))
+n = length(obs)-1
 
-HT, FT, CT = fusion_HFC((Hinit, Finit, Cinit), (Hobs, Fobs, Cobs))
-PT, νT, CT = convert_HFC_to_PνC(HT,FT,CT)
-
-𝒫 = PBridge(RK4(), ℙ, ℙ̃, tt, PT, νT, CT)
-𝒫2 = PBridge(DE(Tsit5()), ℙ, ℙ̃, tt, PT, νT, CT)
-𝒫3 = PBridge(AssumedDensityFiltering(Tsit5()), ℙ, tt, PT, νT, CT)
-
-𝒫HFC = PBridge_HFC(RK4(), ℙ, ℙ̃, tt, HT, FT, CT)
-𝒫HFC2 = PBridge_HFC(DE(Tsit5()), ℙ, ℙ̃, tt, HT, FT, CT)
-𝒫HFC3 = PBridge_HFC(DE(Vern7()), ℙ, ℙ̃, tt, HT, FT, CT)
+HT, FT, CT = fusion_HFC(HFC(obs[n]), HFC(obs[n+1]))
+𝒫s = GuidedProcess[]
 
 
-hcat(𝒫.ν, 𝒫2.ν)
-hcat(𝒫HFC2.F, 𝒫HFC3.F)
+for i in n:-1:2
+    tt = timegrid(obs[i-1].t, obs[i].t, M=50)
+    𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, tt, HT, FT, CT)
+    pushfirst!(𝒫s, 𝒫)
+    message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
+    (HT, FT, CT) = fusion_HFC(message, HFC(obs[i-1]))
+end
 
 
-𝒫 = 𝒫HFC3
+# Forwards Guiding
+ℐs = [PathInnovation(x0, 𝒫s[1]) ]
+for i ∈ 2:n-1
+    xstart = ℐs[i-1].X.yy[end]
+    push!(ℐs, PathInnovation(xstart, 𝒫s[i]))
+end
 
-#𝒫 = PBridge(Adaptive(), ℙ, ℙ̃, tt, PT, νT, CT, X)
+
+
 
 ####################### MH algorithm ###################
+dt = 1/500
+τ(T) = (x) ->  x * (2-x/T)
+tt = τ(T).(0.:dt:T)
 
-X = solve(Euler(), x0, W, ℙ)
-Xᵒ = copy(X)
-solve!(Euler(),Xᵒ, x0, W, 𝒫)
+W = sample(tt, wienertype(𝒫.ℙ))    #W = sample(tt, Wiener())
+X = solve(Euler(), x0, W, ℙ)  # allocation
 solve!(Euler(),X, x0, W, 𝒫)
+Xᵒ = deepcopy(X)
 ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
-
-W = sample(tt, Wiener())  #  sample(tt, Wiener{ℝ{3}}())
-solve!(Euler(),X, x0, W, ℙ̃)
-#solve!(Euler(),X, x0, W, ℙ)
-l = @layout [a b c ; d e f]
-p1 = plot(X.tt, getindex.(X.yy,1))
-p2 = plot(X.tt, getindex.(X.yy,2))
-p3 = plot(X.tt, getindex.(X.yy,3))
-p4 = plot(X.tt, getindex.(X.yy,4))
-p5 = plot(X.tt, getindex.(X.yy,5))
-p6 = plot(X.tt, getindex.(X.yy,6))
-plot(p1,p2,p3,p4,p5,p6, layout=l)
+Wᵒ = deepcopy(W)
+Wbuffer = deepcopy(W)
 
 
-LT*X.yy[end] - vT
-using Plots
-p = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3))
-plot!(p, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3))
+
+
+if false 
+    using Plots
+    l = @layout [a b c ; d e f]
+    p1 = plot(X.tt, getindex.(X.yy,1))
+    plot!(p1, Xf.tt, getindex.(Xf.yy,1))
+    p2 = plot(X.tt, getindex.(X.yy,2))
+    plot!(p2, Xf.tt, getindex.(Xf.yy,2))
+    p3 = plot(X.tt, getindex.(X.yy,3))
+    plot!(p3, Xf.tt, getindex.(Xf.yy,3))
+    p4 = plot(X.tt, getindex.(X.yy,4))
+    plot!(p4, Xf.tt, getindex.(Xf.yy,4))
+    p5 = plot(X.tt, getindex.(X.yy,5))
+    plot!(p5, Xf.tt, getindex.(Xf.yy,5))
+    p6 = plot(X.tt, getindex.(X.yy,6))
+    plot!(p6, Xf.tt, getindex.(Xf.yy,6))
+    plot(p1,p2,p3,p4,p5,p6, layout=l)
+
+    LT*X.yy[end] - vT
+
+    p = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3))
+    plot!(p, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3))
+end
 
 # further initialisation
-Wᵒ = copy(W)
-W2 = copy(W)
 XX = Any[]
 if 0 in subsamples
     push!(XX, copy(X))
 end
 
+
+ρ = .9  # 0.99999999
+
+
 acc = 0
-
 for iter in 1:iterations
-    # ℙroposal
-    global ll, acc, 𝒫
-    sample!(W2, Wiener())
-    #ρ = rand(Uniform(0.95,1.0))
-    Wᵒ.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*W2.yy
-    solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
-
-
-    llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫,skip=sk)
-    print("ll $ll $llᵒ, diff_ll: ",round(llᵒ-ll;digits=3))
-
-    if log(rand()) <= llᵒ - ll
-        X.yy .= Xᵒ.yy
-        W.yy .= Wᵒ.yy
-        ll = llᵒ
-        print("✓")
-        acc +=1
-     
-
-    end
-
-    # if iter==1000
-    #     𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT, X)
-    #     ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
-    # end
-
-    println()
+    global acc
+    (X, W, ll), a = forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, verbose=false)
     if iter in subsamples
         push!(XX, copy(X))
     end
+    acc += a
+
 end
 
 @info "Done."*"\x7"^6
 
 
 
+
 include("process_output.jl")
 
 
-k =5
-p = plot(X.tt, getindex.(X.yy,k))
-plot!(p, Xf.tt, getindex.(Xf.yy,k))
 
+# multiple time intervals
 
 
 

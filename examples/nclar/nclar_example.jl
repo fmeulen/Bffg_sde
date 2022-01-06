@@ -12,7 +12,7 @@ using ForwardDiff
 using DifferentialEquations
 
 
-import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff
+import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, solve, solve!, Euler
 import ForwardDiff: jacobian
 
 wdir = @__DIR__
@@ -44,7 +44,7 @@ x0 = ℝ{3}(0.0, 0.0, 0.0)
 
 # set observatins scheme 
 easy_conditioning = true
-obs_scheme =["full","firstcomponent"][1]
+obs_scheme =["full","firstcomponent"][2]
 
 if obs_scheme=="full"
     LT = SMatrix{3,3}(1.0I)
@@ -58,7 +58,7 @@ end
 
 m,  = size(LT)
 
-Σdiagel = 10e-6
+Σdiagel = 10e-9
 ΣT = SMatrix{m,m}(Σdiagel*I)
 
 
@@ -83,7 +83,7 @@ solv = DE(Vern7())
 𝒫HFC = PBridge_HFC(RK4(), ℙ, ℙ̃, tt, HT, FT, CT)
 𝒫HFC2 = PBridge_HFC(solv, ℙ, ℙ̃, tt, HT, FT, CT)
 
-hcat(𝒫.ν, 𝒫2.ν)
+hcat(𝒫2.ν, 𝒫3.ν)
 hcat(𝒫HFC.F, 𝒫HFC2.F)
 
 # check
@@ -91,7 +91,7 @@ hcat(𝒫HFC.F, 𝒫HFC2.F)
 𝒫HFC2.H[1] * 𝒫2.P[1]
 
 𝒫 = 𝒫3 # 𝒫HFC2
-
+𝒫 = 𝒫HFC2
 
 
 ####################### MH algorithm ###################
@@ -153,6 +153,8 @@ for iter in 1:iterations
 
     end
 
+println(vT - LT * X.yy[end])
+
     # if iter==1000
     #     𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT, X)
     #     ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
@@ -169,6 +171,7 @@ end
 
 
 include("process_output.jl")
+
 
 
 

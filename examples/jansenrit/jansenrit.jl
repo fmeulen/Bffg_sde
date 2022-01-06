@@ -34,6 +34,8 @@ end
 
 Bridge.σ(t, x, ℙ::JansenRitDiffusion) =ℝ{6}(0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0)
     
+wienertype(ℙ::JansenRitDiffusion) = Wiener()
+
 Bridge.constdiff(::JansenRitDiffusion) = true
 dim(::JansenRitDiffusion) = 6
 

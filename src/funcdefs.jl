@@ -1,4 +1,59 @@
 """
+    Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
+
+    (t,v,L,Σ): at time t we have observations v ~ N(Lx_t, Σ)
+    (H, F, C): message from the observation to the triple`
+"""
+struct Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
+    t::Tt
+    v::Tv
+    L::TL
+    Σ::TΣ
+    H::TH
+    F::TF
+    C::TC
+    Observation(t::Tt, v::Tv, L::TL, Σ::TΣ, H::TH, F::TF, C::TC) where {Tt,Tv,TL,TΣ,TH, TF, TC} =
+        new{Tt, Tv, TL, TΣ, TH, TF, TC}(t,v,L,Σ,H,F,C)
+
+
+    function Observation(t::Tt, v::Tv, L::TL, Σ::TΣ) where {Tt, Tv, TL, TΣ}
+        H, F, C = observation_HFC(v, L, Σ)
+        new{Tt, Tv, TL, TΣ, typeof(H), typeof(F), typeof(C)}(t,v,L,Σ,H,F,C)
+    end    
+end
+
+HFC(obs::Observation) = (obs.H, obs.F, obs.C)
+
+# FIXME timechange grid
+timegrid(t0, t1; M) = collect(range(t0, t1, length=M))
+
+
+
+struct PathInnovation{TX, TW, Tll}
+    X::TX
+    W::TW
+    ll::Tll
+    Xᵒ::TX
+    Wᵒ::TW
+    Wbuf::TW
+
+    function PathInnovation(x0, 𝒫)
+        tt = 𝒫.tt
+        W = sample(tt, wienertype(𝒫.ℙ))    #W = sample(tt, Wiener())
+        X = solve(Euler(), x0, W, 𝒫.ℙ)  # allocation
+        solve!(Euler(),X, x0, W, 𝒫)
+        Xᵒ = deepcopy(X)
+        ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
+        Wᵒ = deepcopy(W)
+        Wbuf = deepcopy(W)
+        TX, TW, Tll = typeof(X), typeof(W), typeof(ll)
+        new{TX, TW, Tll}(X,W,ll,Xᵒ, Wᵒ, Wbuf)
+    end
+end
+
+
+
+"""
     kernelrk4(f, t, y, dt, ℙ)
 
     solver for Runge-Kutta 4 scheme
@@ -164,7 +219,7 @@ end
 
 #---------- also for HFC --------------------
 """
-    PBridge_HFC
+    GuidedProcess
 
         struct for partial bridges
     ℙ:  target diffusion
@@ -175,41 +230,41 @@ end
     C:  -C is an additive factor in the loglikelihood
 
     constructor from incomsing triplet (PT, νT, cT) is given by 
-        PBridge_HFC(ℙ, ℙ̃, tt, PT, νT, CT) 
+        GuidedProcess(ℙ, ℙ̃, tt, PT, νT, CT) 
 """
-struct PBridge_HFC{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
+struct GuidedProcess{T,Tℙ,Tℙ̃,TP,Tν,TC} <: ContinuousTimeProcess{T}
     ℙ::Tℙ   
     ℙ̃::Tℙ̃   
     tt::Vector{Float64}  
     H::Vector{TP}      
     F::Vector{Tν}      
     C::TC              
-    PBridge_HFC(ℙ::Tℙ, ℙ̃::Tℙ̃, tt, Ht::Vector{TP}, Ft::Vector{Tν}, C::TC) where {Tℙ,Tℙ̃,TP,Tν,TC} =
+    GuidedProcess(ℙ::Tℙ, ℙ̃::Tℙ̃, tt, Ht::Vector{TP}, Ft::Vector{Tν}, C::TC) where {Tℙ,Tℙ̃,TP,Tν,TC} =
         new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TP,Tν,TC}(ℙ, ℙ̃, tt, Ht, Ft, C)
 
     # constructor: provide (timegrid, ℙ, ℙ̃, νT, PT, CT)    
-    function PBridge_HFC(::RK4, ℙ, ℙ̃, tt_, HT::TP, FT::Tν, CT) where {TP, Tν}
+    function GuidedProcess(::RK4, ℙ, ℙ̃, tt_, HT::TP, FT::Tν, CT) where {TP, Tν}
         tt = collect(tt_)
         N = length(tt)
         Ht = zeros(TP, N)
         Ft = zeros(Tν, N)
         _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
-        PBridge_HFC(ℙ, ℙ̃, tt, Ht, Ft, C)
+        GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
 
     
-    function PBridge_HFC(D::DE, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
+    function GuidedProcess(D::DE, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT) where {TP, Tν}
         tt = collect(tt_)
         N = length(tt)
         Pt = zeros(TP, N)
         νt = zeros(Tν, N)
         _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Pt, νt), (PT, νT, CT))
-        PBridge_HFC(ℙ, ℙ̃, tt, Pt, νt, C)
+        GuidedProcess(ℙ, ℙ̃, tt, Pt, νt, C)
     end
 
 
     # # 2nd constructor (use also samplepath X in backward ODEs): provide (timegrid, ℙ, νT, PT, CT, X::Sampleℙath)    
-    # function PBridge_HFC(::Adaptive, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT, X::SamplePath) where  {TP, Tν}
+    # function GuidedProcess(::Adaptive, ℙ, ℙ̃, tt_, PT::TP, νT::Tν, CT, X::SamplePath) where  {TP, Tν}
     #     tt = collect(tt_)
     #     N = length(tt)
     #     Pt = zeros(TP, N)
@@ -310,14 +365,14 @@ end
 
 r((i,t)::IndexedTime, x, 𝒫::PBridge) = (𝒫.P[i] \ (𝒫.ν[i] - x) )
 
-function Bridge._b((i,t)::IndexedTime, x, 𝒫::Union{PBridge_HFC, PBridge})  
+function Bridge._b((i,t)::IndexedTime, x, 𝒫::Union{GuidedProcess, PBridge})  
     Bridge.b(t, x, 𝒫.ℙ) + Bridge.a(t, x, 𝒫.ℙ) * r((i,t),x,𝒫)   
 end
 
-Bridge.σ(t, x, 𝒫::Union{PBridge_HFC, PBridge}) = Bridge.σ(t, x, 𝒫.ℙ)
-Bridge.a(t, x, 𝒫::Union{PBridge_HFC, PBridge}) = Bridge.a(t, x, 𝒫.ℙ)
+Bridge.σ(t, x, 𝒫::Union{GuidedProcess, PBridge}) = Bridge.σ(t, x, 𝒫.ℙ)
+Bridge.a(t, x, 𝒫::Union{GuidedProcess, PBridge}) = Bridge.a(t, x, 𝒫.ℙ)
 #Bridge.Γ(t, x, 𝒫::PBridge) = Bridge.Γ(t, x, 𝒫.ℙ)
-Bridge.constdiff(𝒫::Union{PBridge_HFC, PBridge}) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
+Bridge.constdiff(𝒫::Union{GuidedProcess, PBridge}) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
 
 function logh̃(x, 𝒫::PBridge) 
     H1, F1, C = convert_PνC_to_HFC(𝒫.P[1], 𝒫.ν[1], 𝒫.C)
@@ -347,14 +402,14 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge; skip = 0, include
 end
 
 
-#------ also for HFC   PBridge_HFC
-r((i,t)::IndexedTime, x, 𝒫::PBridge_HFC) = 𝒫.F[i] - 𝒫.H[i] * x 
+#------ also for HFC   GuidedProcess
+r((i,t)::IndexedTime, x, 𝒫::GuidedProcess) = 𝒫.F[i] - 𝒫.H[i] * x 
 
-function logh̃(x, 𝒫::PBridge_HFC) 
+function logh̃(x, 𝒫::GuidedProcess) 
     -0.5 * x' * 𝒫.H[1] * x + 𝒫.F[1]' * x - 𝒫.C    
 end
 
-function llikelihood(::LeftRule, X::SamplePath, 𝒫::PBridge_HFC; skip = 0, include_h0=false)
+function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = 0, include_h0=false)
     tt = X.tt
     xx = X.yy
 
@@ -437,9 +492,10 @@ function pbridgeode!(D::AssumedDensityFiltering, ℙ, t, (Pt, νt), (PT, νT, CT
         #_β = Bridge.b(s,x,ℙ) - _B*x
         _σ = Bridge.σ(s,ν,ℙ)
         _a = Bridge.a(s,ν,ℙ)
+
     
-        dP =  (_B * P) + (P * _B') - _a
-        dν =  Bridge.b(s,ν, ℙ)
+        dP =  (_B * P) + (P * _B') - _a       # originally - _a
+        dν =  Bridge.b(s, ν, ℙ)
         F = (P \ ν)
         dC =  0.5*Bridge.outer(F' * _σ) - 0.5*tr( (P \ (_a))) #+ dot(_β, F) # CHECK
         vectorise(dP, dν, dC)
@@ -459,14 +515,17 @@ function pbridgeode!(D::AssumedDensityFiltering, ℙ, t, (Pt, νt), (PT, νT, CT
         saveat=reverse(tt), 
         tdir=-1
     )
-    integrator = init(
-        prob,
-        D.solvertype,
-        callback=callback,
-        save_everystep=false, # to prevent wasting memory allocations
-    )
-    sol = DifferentialEquations.solve!(integrator)   # s
+    # integrator = init(
+    #     prob,
+    #     D.solvertype,
+    #     callback=callback,
+    #     save_everystep=false, # to prevent wasting memory allocations
+    # )
+    # sol = DifferentialEquations.solve!(integrator)   # s
     
+    # test
+    sol = DifferentialEquations.solve!(init(prob, D.solvertype, callback=callback, save_everystep=false))
+
     savedt = saved_values.t
     ss = saved_values.saveval
     reverse!(ss)
@@ -583,4 +642,24 @@ end
 
 
 
+function forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, verbose=false)
+    acc = false
+    sample!(Wbuffer, wienertype(𝒫.ℙ))
+    Wᵒ.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*Wbuffer.yy
+    x0 = X.yy[1]
+    solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=skip)
 
+    if !verbose
+        print("ll $ll $llᵒ, diff_ll: ",round(llᵒ-ll;digits=3))
+    end
+    if log(rand()) <= llᵒ - ll
+        X.yy .= Xᵒ.yy
+        W.yy .= Wᵒ.yy
+        ll = llᵒ
+        if !verbose   print("✓")    end
+        acc = true
+    end
+    println()
+    (X, W, ll), acc 
+end

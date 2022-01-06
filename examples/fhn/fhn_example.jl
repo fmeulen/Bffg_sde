@@ -17,7 +17,7 @@ outdir= joinpath(wdir, "out")
 
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 
-aux_choice = ["linearised_end" "linearised_startend"  "matching"][2]
+aux_choice = ["linearised_end" "linearised_startend"  "matching"][1]
 include("fhn.jl")
 
 ################################  TESTING  ################################################
@@ -27,7 +27,7 @@ skip_it = 100  #1000
 subsamples = 0:skip_it:iterations
 
 T = 2.0 # original setting
-T = 25.0
+#T = 5.0
 dt = 1/500
 τ(T) = (x) ->  x * (2-x/T)
 tt = τ(T).(0.:dt:T)
@@ -38,7 +38,7 @@ sk = 0 # skipped in evaluating loglikelihood
 
 # specify observation scheme
 LT = @SMatrix [1. 0.]
-Σdiagel = 10^(-2)
+Σdiagel = 10^(-9)
 ΣT = @SMatrix [Σdiagel]
 
 # specify target process
@@ -66,7 +66,11 @@ Hobs, Fobs, Cobs = observation_HFC(vT, LT, ΣT)
 HT, FT, CT = fusion_HFC((Hinit, Finit, Cinit), (Hobs, Fobs, Cobs))
 PT, νT, CT = convert_HFC_to_PνC(HT,FT,CT)
 
-𝒫 = PBridge(ℙ, ℙ̃, tt, PT, νT, CT);
+# 
+#𝒫 = PBridge(RK4(),  ℙ, ℙ̃, tt, PT, νT, CT);
+#𝒫 = PBridge(DE(Tsit5()),  ℙ, ℙ̃, tt, PT, νT, CT);
+𝒫 = PBridge_HFC(DE(Vern7()), ℙ, ℙ̃, tt, HT, FT, CT)
+
 
 ####################### MH algorithm ###################
 # alternatively, if σ is defined as a matrix, then set
