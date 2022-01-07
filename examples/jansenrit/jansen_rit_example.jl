@@ -16,30 +16,30 @@ cd(wdir)
 outdir= joinpath(wdir, "out")
 include("jansenrit.jl")
 
-include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 
 ################################  TESTING  ################################################
-# settings sampler
-iterations = 3_000 # 5*10^4
-skip_it = 100  #1000
-subsamples = 0:skip_it:iterations
-
-T = 10.0
 
 sk = 0 # skipped in evaluating loglikelihood
+ρ = 0.9
+
+Random.seed!(5)
+
+
 
 θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
 # θtrue =[0.0, 100.0, 0.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 00.0, 2000.0]  
 # θtrue =[3.25, 1.0, 22.0, 0.5, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 20.0]  # adjust a and b
 
 ℙ = JansenRitDiffusion(θtrue...)
-x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
-#x0 = @SVector zeros(dim(ℙ))
+T = 10.0
 ℙ̃ = JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, T)
 
+
 #---- generate test data
-Random.seed!(4)
+x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
 W = sample((-1.0):0.001:T, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
 Xf_prelim = solve(Euler(), x0, W, ℙ)
 # drop initial nonstationary behaviour
@@ -64,30 +64,11 @@ end
 
 
 
-
 # Backwards filtering
-  
-function backwardfiltering(obs, ℙ, ℙ̃ ;ϵ = 10e-2, M=100)
-    Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
-    n = length(obs)
-
-    HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
-    𝒫s = GuidedProcess[]
-    for i in n:-1:2
-        println(i)
-        tt = timegrid(obs[i-1].t, obs[i].t, M=M)
-        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, tt, HT, FT, CT)
-        pushfirst!(𝒫s, 𝒫)
-        message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
-        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i-1]))
-    end
-    (HT, FT, CT), 𝒫s
-end
-
-backwardfiltering(obs, ℙ, ℙ̃)
-
+@time (H0, F0, C0), 𝒫s = backwardfiltering(obs, ℙ, ℙ̃);
 
 # Forwards guiding initialisation
+n = length(obs)
 xend = x0
 ℐs = PathInnovation[]
 for i ∈ 1:n-1
@@ -96,7 +77,7 @@ for i ∈ 1:n-1
 end
 
 
-# plotting and checking
+    # plotting and checking
         ec(x,i) = getindex.(x,i)
 
         p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,1), label="")
@@ -111,49 +92,83 @@ end
         end
 
 # Forwards guiding pCN
-xend = x0  
-for i ∈ 1:n-1
-    (ℐs[i], xend, acc) = forwardguide(xend, ℐs[i], 𝒫s[i], ρ);
-end
+ℐs, acc = forwardguide(x0, ℐs, 𝒫s, ρ);
 
 
 
+# settings sampler
+iterations = 25 # 5*10^4
+skip_it = 10  #1000
+subsamples = 0:skip_it:iterations
 
-# further initialisation
 XX = Any[]
-if 0 in subsamples
-    push!(XX, copy(X))
-end
+(0 in subsamples) &&    push!(XX, mergepaths(ℐs))
 
 
-ρ = .9  # 0.99999999
-
-
-iterations = 10
 acc = 0
 for iter in 1:iterations
     global acc
-
-    # Forwards guiding pCN
-    xend = x0  
-    for i ∈ 1:n-1
-        (ℐs[i], xend, a) = forwardguide(xend, ℐs[i], 𝒫s[i], ρ);
-    end
-
-    
-    
-    if iter in subsamples
-    #    push!(XX, copy(X))
-        push!(XX, mergepaths(ℐs))
-    end
+    ℐs, a = forwardguide(x0, ℐs, 𝒫s, ρ);
     acc += a
-
+    (iter in subsamples) && push!(XX, mergepaths(ℐs))    #    push!(XX, copy(X))
 end
 
-@info "Done."*"\x7"^6
+say("Joehoe, klaar met rekenen")
 
-include("process_output.jl")
 
+#--------- plotting 
+extractcomp(v,i) = map(x->x[i], v)
+d = dim(ℙ)
+J = length(XX[1].tt)
+iterates = [Any[s, XX[i].tt[j], k, XX[i].yy[j][k]] for k in 1:d, j in 1:J, (i,s) in enumerate(subsamples) ][:]
+# FIXME, J need not be constant
+
+
+df_iterates = DataFrame(iteration=extractcomp(iterates,1),time=extractcomp(iterates,2), component=extractcomp(iterates,3), value=extractcomp(iterates,4))
+#CSV.write(outdir*"iterates.csv",df_iterates)
+
+
+################ plotting in R ############
+using RCall
+dd = df_iterates
+
+@rput dd
+#@rput obs_scheme
+@rput outdir
+
+R"""
+library(ggplot2)
+library(tidyverse)
+theme_set(theme_bw(base_size = 13))
+
+# vT = c(0.03125,   0.25,   1.0)                  #vT <- c(5/128,3/8,2)
+# vTvec = rep(vT, nrow(dd)/3)
+
+dd$component <- as.factor(dd$component)
+dd <- dd %>% mutate(component=fct_recode(component,'component 1'='1',
+              'component 2'='2', 'component 3'='3', 'component 4'='4','component 5'='5','component 6'='6'))
+
+
+
+
+# make figure
+p <- ggplot(mapping=aes(x=time,y=value,colour=iteration),data=dd) +
+  geom_path(aes(group=iteration)) + #geom_hline(aes(yintercept=trueval)) +
+  facet_wrap(~component,scales='free_y')+
+  scale_colour_gradient(low='green',high='blue')+ylab("")
+show(p)
+
+# write to pdf
+fn <- paste0(outdir,"bridges.pdf")
+pdf(fn,width=7,height=5)
+show(p)
+dev.off()    
+
+"""
+
+
+
+if false 
 
 
 
@@ -201,7 +216,8 @@ if false
     plot!(p, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3))
 end
 
-# further initialisation
+
+
 XX = Any[]
 if 0 in subsamples
     push!(XX, copy(X))
@@ -225,13 +241,5 @@ end
 @info "Done."*"\x7"^6
 
 
-
-
-
-
-
-
-# multiple time intervals
-
-
+end
 
