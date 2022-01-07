@@ -27,12 +27,7 @@ sk = 0 # skipped in evaluating loglikelihood
 
 Random.seed!(5)
 
-
-
 θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
-# θtrue =[0.0, 100.0, 0.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 00.0, 2000.0]  
-# θtrue =[3.25, 1.0, 22.0, 0.5, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 20.0]  # adjust a and b
-
 ℙ = JansenRitDiffusion(θtrue...)
 T = 10.0
 ℙ̃ = JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, T)
@@ -61,20 +56,14 @@ obs = Observation[]
 for i ∈ eachindex(obsvals)
     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
 end
-
+timegrids = set_timegrids(obs, 100)
 
 
 # Backwards filtering
-@time (H0, F0, C0), 𝒫s = backwardfiltering(obs, ℙ, ℙ̃);
+@time (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
 
 # Forwards guiding initialisation
-n = length(obs)
-xend = x0
-ℐs = PathInnovation[]
-for i ∈ 1:n-1
-    push!(ℐs, PathInnovation(xend, 𝒫s[i]))
-    xend = lastval(ℐs[i])
-end
+ℐs = init_forwardguide(x0, 𝒫s)
 
 
     # plotting and checking
@@ -108,7 +97,7 @@ XX = Any[]
 acc = 0
 for iter in 1:iterations
     global acc
-    ℐs, a = forwardguide(x0, ℐs, 𝒫s, ρ);
+    ℐs, a = forwardguide(x0, ℐs, 𝒫s, ρ, verbose=true);
     acc += a
     (iter in subsamples) && push!(XX, mergepaths(ℐs))    #    push!(XX, copy(X))
 end
@@ -141,15 +130,9 @@ library(ggplot2)
 library(tidyverse)
 theme_set(theme_bw(base_size = 13))
 
-# vT = c(0.03125,   0.25,   1.0)                  #vT <- c(5/128,3/8,2)
-# vTvec = rep(vT, nrow(dd)/3)
-
 dd$component <- as.factor(dd$component)
 dd <- dd %>% mutate(component=fct_recode(component,'component 1'='1',
               'component 2'='2', 'component 3'='3', 'component 4'='4','component 5'='5','component 6'='6'))
-
-
-
 
 # make figure
 p <- ggplot(mapping=aes(x=time,y=value,colour=iteration),data=dd) +
@@ -168,27 +151,6 @@ dev.off()
 
 
 
-if false 
-
-
-
-
-
-
-
-
-####################### MH algorithm ###################
-dt = 1/500
-τ(T) = (x) ->  x * (2-x/T)
-tt = τ(T).(0.:dt:T)
-
-W = sample(tt, wienertype(𝒫.ℙ))    #W = sample(tt, Wiener())
-X = solve(Euler(), x0, W, ℙ)  # allocation
-solve!(Euler(),X, x0, W, 𝒫)
-Xᵒ = deepcopy(X)
-ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
-Wᵒ = deepcopy(W)
-Wbuffer = deepcopy(W)
 
 
 
@@ -216,30 +178,4 @@ if false
     plot!(p, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3))
 end
 
-
-
-XX = Any[]
-if 0 in subsamples
-    push!(XX, copy(X))
-end
-
-
-ρ = .9  # 0.99999999
-
-
-acc = 0
-for iter in 1:iterations
-    global acc
-    (X, W, ll), a = forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, verbose=false)
-    if iter in subsamples
-        push!(XX, copy(X))
-    end
-    acc += a
-
-end
-
-@info "Done."*"\x7"^6
-
-
-end
 

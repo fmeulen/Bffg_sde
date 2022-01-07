@@ -291,3 +291,25 @@ end
         #B = jacobian(u -> ff(s,ℙ)(u), x)
         B = jacobian(ff(s,ℙ), x)
     end
+
+
+
+
+
+    """
+    convert_HFC_to_PνC(H,F,C)
+
+    convert parametrisation 
+        exp(-c - 0.5 x' H x + F' x)
+    to 
+        exp(-c - 0.5 x'P^(-1) x + (P^(-1) nu)' x)
+"""
+function convert_HFC_to_PνC(H,F,C)
+    P = inv(H)
+    P, P*F, C
+end   
+
+function convert_PνC_to_HFC(P,ν,C)
+    H = inv(P)
+    P, P\ν, C
+end   
