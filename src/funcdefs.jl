@@ -205,7 +205,8 @@ end
 
 
 r((i,t)::IndexedTime, x, 𝒫::GuidedProcess) = 𝒫.F[i] - 𝒫.H[i] * x 
-logh̃(x, 𝒫::GuidedProcess) = -0.5 * x' * 𝒫.H[1] * x + 𝒫.F[1]' * x - 𝒫.C    
+
+logh̃(x, (H,F,C)) = -0.5 * x' * H * x + F' * x + C    
    
 Bridge._b((i,t)::IndexedTime, x, 𝒫::GuidedProcess)  =  Bridge.b(t, x, 𝒫.ℙ) + Bridge.a(t, x, 𝒫.ℙ) * r((i,t),x,𝒫)   
 Bridge.σ(t, x, 𝒫::GuidedProcess) = Bridge.σ(t, x, 𝒫.ℙ)
@@ -213,7 +214,7 @@ Bridge.a(t, x, 𝒫::GuidedProcess) = Bridge.a(t, x, 𝒫.ℙ)
 Bridge.constdiff(𝒫::GuidedProcess) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
 
 
-function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = 0, include_h0=false)
+function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = 0)
     tt = X.tt
     xx = X.yy
     som::Float64 = 0.
@@ -229,8 +230,12 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = 0, i
             som += 0.5 * ( r̃' * ( a((i,s), x, 𝒫.ℙ) - a((i,s), x, 𝒫.ℙ̃) ) * r̃)  * dt
         end
     end
-    som + (include_h0) * logh̃(X.yy[1], 𝒫)
+    som 
 end
+
+function loglik(x0, (H0,F0,C0), ℐs::Vector{PathInnovation})
+    logh̃(x0, (H0,F0,C0)) + sum(map(x -> x.ll, ℐs))
+end   
 
 
 function forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, verbose=false)
@@ -276,7 +281,7 @@ end
     xend: endpoint of updated samplepath x
     acc: Booolean if pCN step was accepted
 """
-function forwardguide(x0, ℐ::PathInnovation , 𝒫, ρ; skip=sk, verbose=false)
+function forwardguide(ℐ::PathInnovation, 𝒫, x0, ρ; skip=sk, verbose=false)
     X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
     sample!(Wbuf, wienertype(𝒫.ℙ))
     Wᵒ.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*Wbuf.yy
@@ -285,7 +290,7 @@ function forwardguide(x0, ℐ::PathInnovation , 𝒫, ρ; skip=sk, verbose=false
 
     !verbose && print("ll $ll $llᵒ, diff_ll: ",round(llᵒ-ll;digits=3))
     if log(rand()) <= llᵒ - ll
-        !verbose &&  print("✓")    
+        !verbose && print("✓")    
         !verbose && println()
         return (PathInnovation(Xᵒ, Wᵒ, llᵒ, Xᵒ, Wᵒ, Wbuf), lastval(Xᵒ), true)
     else
@@ -295,15 +300,33 @@ function forwardguide(x0, ℐ::PathInnovation , 𝒫, ρ; skip=sk, verbose=false
 end
 
 
-function forwardguide(x0, ℐs::Vector{PathInnovation} , 𝒫s, ρ; skip=sk, verbose=false)
+function forwardguide!(ℐs::Vector{PathInnovation}, 𝒫s, x0, ρ; skip=sk, verbose=false)
     acc = 0
     xend = x0  
     for i ∈ 1:n-1
-        (ℐs[i], xend, a) = forwardguide(xend, ℐs[i], 𝒫s[i], ρ; skip=skip, verbose=verbose);
+        (ℐs[i], xend, a) = forwardguide(ℐs[i], 𝒫s[i], xend, ρ; skip=skip, verbose=verbose);
         acc += a
     end
     ℐs, acc
 end
+
+
+function forwardguide_innovationsfixed(ℐ, 𝒫, x0; skip=skip)
+    X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
+    solve!(Euler(),Xᵒ, x0, W, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=skip)
+    (PathInnovation(Xᵒ, W, llᵒ, Xᵒ, Wᵒ, Wbuf), lastval(Xᵒ))
+end    
+
+function forwardguide_innovationsfixed!(ℐsᵒ::Vector{PathInnovation}, ℐs, x0, 𝒫s; skip=sk)
+    xend = x0  
+    for i ∈ 1:n-1
+        (ℐsᵒ[i], xend) = forwardguide_innovationsfixed(ℐs[i], 𝒫s[i], xend; skip=skip)
+    end
+    ℐs
+end
+
+
 
 
 function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
@@ -312,11 +335,11 @@ function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
 
     HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
     𝒫s = GuidedProcess[]
-    for i in n:-1:2
-        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, timegrids[i-1], HT, FT, CT)
+    for i in n-1:-1:1
+        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, timegrids[i], HT, FT, CT)
         pushfirst!(𝒫s, 𝒫)
         message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
-        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i-1]))
+        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
     end
     (HT, FT, CT), 𝒫s
 end
@@ -325,3 +348,20 @@ end
 
 
 
+
+
+function parupdate(obs, timegrids, x0, 𝒫s, ℐs, ℐsᵒ)
+    ℙ, ℙ̃ = 𝒫s[1].ℙ, 𝒫s[1].ℙ̃
+    aᵒ = ℙ.a + 300*rand(Uniform(-0.1, 0.1))
+    ℙᵒ = @set ℙ.a=aᵒ
+    ℙ̃ᵒ = @set ℙ̃.a=aᵒ
+    
+    (H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering(obs, timegrids, ℙᵒ, ℙ̃ᵒ);
+    ℐsᵒ = forwardguide_innovationsfixed!(ℐsᵒ, ℐs, x0, 𝒫sᵒ; skip=sk)
+    diff_ll = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
+    if log(rand()) < diff_ll
+        return (𝒫sᵒ, ℐsᵒ, aᵒ, true)
+    else
+        return (𝒫s, ℐs, a, false)
+    end   
+end
