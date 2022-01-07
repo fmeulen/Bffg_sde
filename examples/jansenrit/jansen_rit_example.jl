@@ -51,7 +51,7 @@ k = 3; plot(Xf.tt, getindex.(Xf.yy,k))
 
 #------  set observations
 L = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
-m,  = size(LT)
+m,  = size(L)
 Σdiagel = 10e-9
 Σ = SMatrix{m,m}(Σdiagel*I)
 
@@ -66,30 +66,98 @@ end
 
 
 # Backwards filtering
-ϵ = 10e-2  
-Hinit, Finit, Cinit =  init_HFC(vT, LT, dim(ℙ); ϵ=ϵ)
-push!(obs, Observation(0,0,0,0, Hinit, Finit, Cinit))
-n = length(obs)-1
+  
+function backwardfiltering(obs, ℙ, ℙ̃ ;ϵ = 10e-2, M=100)
+    Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
+    n = length(obs)
 
-HT, FT, CT = fusion_HFC(HFC(obs[n]), HFC(obs[n+1]))
-𝒫s = GuidedProcess[]
+    HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
+    𝒫s = GuidedProcess[]
+    for i in n:-1:2
+        println(i)
+        tt = timegrid(obs[i-1].t, obs[i].t, M=M)
+        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, tt, HT, FT, CT)
+        pushfirst!(𝒫s, 𝒫)
+        message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
+        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i-1]))
+    end
+    (HT, FT, CT), 𝒫s
+end
+
+backwardfiltering(obs, ℙ, ℙ̃)
 
 
-for i in n:-1:2
-    tt = timegrid(obs[i-1].t, obs[i].t, M=50)
-    𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, tt, HT, FT, CT)
-    pushfirst!(𝒫s, 𝒫)
-    message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
-    (HT, FT, CT) = fusion_HFC(message, HFC(obs[i-1]))
+# Forwards guiding initialisation
+xend = x0
+ℐs = PathInnovation[]
+for i ∈ 1:n-1
+    push!(ℐs, PathInnovation(xend, 𝒫s[i]))
+    xend = lastval(ℐs[i])
 end
 
 
-# Forwards Guiding
-ℐs = [PathInnovation(x0, 𝒫s[1]) ]
-for i ∈ 2:n-1
-    xstart = ℐs[i-1].X.yy[end]
-    push!(ℐs, PathInnovation(xstart, 𝒫s[i]))
+# plotting and checking
+        ec(x,i) = getindex.(x,i)
+
+        p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,1), label="")
+        for k in 2:n-1
+        plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,1), label="")
+        end
+        p
+
+        # check whether interpolation goes fine
+        for i in 2:n-1
+        println( obs[i+1].v - obs[i].L * ℐs[i].X.yy[end]  )
+        end
+
+# Forwards guiding pCN
+xend = x0  
+for i ∈ 1:n-1
+    (ℐs[i], xend, acc) = forwardguide(xend, ℐs[i], 𝒫s[i], ρ);
 end
+
+
+
+
+# further initialisation
+XX = Any[]
+if 0 in subsamples
+    push!(XX, copy(X))
+end
+
+
+ρ = .9  # 0.99999999
+
+
+iterations = 10
+acc = 0
+for iter in 1:iterations
+    global acc
+
+    # Forwards guiding pCN
+    xend = x0  
+    for i ∈ 1:n-1
+        (ℐs[i], xend, a) = forwardguide(xend, ℐs[i], 𝒫s[i], ρ);
+    end
+
+    
+    
+    if iter in subsamples
+    #    push!(XX, copy(X))
+        push!(XX, mergepaths(ℐs))
+    end
+    acc += a
+
+end
+
+@info "Done."*"\x7"^6
+
+include("process_output.jl")
+
+
+
+
+
 
 
 
@@ -159,7 +227,7 @@ end
 
 
 
-include("process_output.jl")
+
 
 
 
