@@ -36,6 +36,8 @@ struct PathInnovation{TX, TW, Tll}
     Xᵒ::TX
     Wᵒ::TW
     Wbuf::TW
+    PathInnovation(X::TX, W::TW, ll::Tll, Xᵒ::TX, Wᵒ::TW, Wbuf::TW) where {TX, Tll, TW} =
+    new{TX,TW,Tll}(X, W, ll, Xᵒ, Wᵒ, Wbuf)
 
     function PathInnovation(x0, 𝒫)
         tt = 𝒫.tt
@@ -540,7 +542,7 @@ end
 
 
 
-function pbridgeode_HFC!(D::DE, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
+function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
     function dHFC(y, ℙ̃, s) # note interchanged order of arguments
         access = Val{}(dim(ℙ̃))
         H, F, C = static_accessor_HFc(y, access)
@@ -662,4 +664,42 @@ function forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, ver
     end
     println()
     (X, W, ll), acc 
+end
+
+
+"""
+    forwardguide(x0, ℐ::PathInnovation, 𝒫, ρ; skip=sk, verbose=false)
+
+    returns tuple (ℐ, xend, acc) where
+    ℐ:: PathInnovation (updated elements for X, W and ll in case of acceptance, else just the 'input' ℐ)
+    xend: endpoint of updated samplepath x
+    acc: Booolean if pCN step was accepted
+"""
+function forwardguide(x0, ℐ::PathInnovation , 𝒫, ρ; skip=sk, verbose=false)
+    W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
+    sample!(Wbuf, wienertype(𝒫.ℙ))
+    Wᵒ.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*Wbuf.yy
+    solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=skip)
+
+    if !verbose
+        print("ll $ll $llᵒ, diff_ll: ",round(llᵒ-ll;digits=3))
+    end
+    if log(rand()) <= llᵒ - ll
+        if !verbose   print("✓")    end
+        println()
+        return (PathInnovation(Xᵒ, Wᵒ, llᵒ, Xᵒ, Wᵒ, Wbuf), lastval(Xᵒ), true)
+    else
+        println()
+        return (ℐ, lastval(X), false)
+    end
+end
+
+lastval(X::SamplePath) = X.yy[end]
+lastval(ℐ::PathInnovation) = lastval(ℐ.X)
+
+function mergepaths(ℐs)
+    tt = map(x->x.X.tt, ℐs)
+    yy = map(x->x.X.yy, ℐs)
+    SamplePath(vcat(tt...),vcat(yy...))
 end
