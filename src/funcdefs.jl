@@ -1,3 +1,17 @@
+
+abstract type Solver end
+
+struct RK4 <: Solver end
+struct DE{T} <: Solver 
+    solvertype::T
+end
+
+struct Adaptive <: Solver end
+    struct AssumedDensityFiltering{T} <: Solver 
+    solvertype::T
+end
+
+
 """
     Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
 
@@ -22,9 +36,12 @@ struct Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
     end    
 end
 
+"""
+    PathInnovation{TX, TW, Tll}
 
-
-
+    contains path, innovation and loglikelihood for a segment (=kernel)
+    additionally contains buffers for proposals to be used in a pCN step
+"""
 struct PathInnovation{TX, TW, Tll}
     X::TX
     W::TW
@@ -37,7 +54,7 @@ struct PathInnovation{TX, TW, Tll}
 
     function PathInnovation(x0, 𝒫)
         tt = 𝒫.tt
-        W = sample(tt, wienertype(𝒫.ℙ))    #W = sample(tt, Wiener())
+        W = sample(tt, wienertype(𝒫.ℙ))    
         X = solve(Euler(), x0, W, 𝒫.ℙ)  # allocation
         solve!(Euler(),X, x0, W, 𝒫)
         Xᵒ = deepcopy(X)
@@ -45,68 +62,14 @@ struct PathInnovation{TX, TW, Tll}
         Wᵒ = deepcopy(W)
         Wbuf = deepcopy(W)
         PathInnovation(X,W,ll,Xᵒ, Wᵒ, Wbuf)
-        # TX, TW, Tll = typeof(X), typeof(W), typeof(ll)
-        # new{TX, TW, Tll}(X,W,ll,Xᵒ, Wᵒ, Wbuf)
     end
 end
-
-
-
-
-"""
-    convert_HFC_to_PνC(H,F,C)
-
-    convert parametrisation 
-        exp(-c - 0.5 x' H x + F' x)
-    to 
-        exp(-c - 0.5 x'P^(-1) x + (P^(-1) nu)' x)
-"""
-function convert_HFC_to_PνC(H,F,C)
-    P = inv(H)
-    P, P*F, C
-end   
-
-function convert_PνC_to_HFC(P,ν,C)
-    H = inv(P)
-    P, P\ν, C
-end   
-
-vectorise(P,ν, C) = vcat(SVector(P), ν, SVector(C))
-
-"""
-    static_accessor_HFc(u::SVector, ::Val{T}) where T
-Access data stored in the container `u` so that it matches the shapes of H,F,c
-and points to the correct points in `u`. `T` is the dimension of the stochastic
-process.
-
-implemented by M. Mider in GuidedProposals.jl
-"""
-function static_accessor_HFc(u::K, ::Val{T}) where {K<:Union{SVector,MVector},T}
-    Hidx = SVector{T*T,Int64}(1:T*T)
-    Fidx = SVector{T,Int64}((T*T+1):(T*T+T))
-    reshape(u[Hidx], Size(T,T)), u[Fidx], u[T*T+T+1]
-end
-
-
-abstract type Solver end
-
-struct RK4 <: Solver end
-struct DE{T} <: Solver 
-    solvertype::T
-end
-
-struct Adaptive <: Solver end
-    
-struct AssumedDensityFiltering{T} <: Solver 
-    solvertype::T
-end
-
 
 
 """
     GuidedProcess
 
-        struct for partial bridges
+        struct for guide process on a segment (equivalently kernel)
     ℙ:  target diffusion
     ℙ̃:  auxiliary NclarDiffusion
     tt: time grid for diffusion (including start and end time)
@@ -114,8 +77,7 @@ end
     F:  F values on tt
     C:  -C is an additive factor in the loglikelihood
 
-    constructor from incomsing triplet (PT, νT, cT) is given by 
-        GuidedProcess(ℙ, ℙ̃, tt, PT, νT, CT) 
+    constructors for solving the backward filtering by numerically approximating ODEs
 """
 struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
     ℙ::Tℙ   
@@ -127,7 +89,7 @@ struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
     GuidedProcess(ℙ::Tℙ, ℙ̃::Tℙ̃, tt, Ht::Vector{TH}, Ft::Vector{TF}, C::TC) where {Tℙ,Tℙ̃,TH,TF,TC} =
         new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TH,TF,TC}(ℙ, ℙ̃, tt, Ht, Ft, C)
 
-    # constructor: provide (timegrid, ℙ, ℙ̃, νT, PT, CT)    
+    # constructor: provide (ℙ, ℙ̃, timegrid HT, FT, CT)    
     function GuidedProcess(::RK4, ℙ, ℙ̃, tt_, HT::TH, FT::TF, CT) where {TH, TF}
         tt = collect(tt_)
         N = length(tt)
@@ -136,8 +98,7 @@ struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
         _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
         GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
-
-    
+ 
     function GuidedProcess(D::DE, ℙ, ℙ̃, tt_, HT::TH, FT::TF, CT) where {TH, TF}
         tt = collect(tt_)
         N = length(tt)
@@ -147,8 +108,6 @@ struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
         GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
 end
-
-
 
 
 """
@@ -183,6 +142,7 @@ function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
     end
     Ht, Ft, C
 end
+
 
 function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
     function dHFC(y, ℙ̃, s) # note interchanged order of arguments
@@ -232,35 +192,7 @@ end
 
 
 
-"""
-    init_HFC(v, L, d; ϵ=0.01)
 
-    d = dimension of the diffusion
-    First computes xT = L^(-1) * vT (Moore-Penrose inverse), a reasonable guess for the full state based on the partial observation vT
-    Then convert artifical observation v ~ N(xT, ϵ^(-1) * I)
-    to triplet  (H, F, C)
-"""
-function init_HFC(v, L, d::Int64; ϵ=0.01)
-    P = ϵ^(-1)*SMatrix{d,d}(1.0I)
-    xT = L\v
-    z = zero(xT)
-    C = -logpdf(Bridge.Gaussian(z, P), z) 
-    convert_PνC_to_HFC(P, xT ,C)
-end
-
-
-"""
-    observation_HFC(v, L, Σ)
-
-    Convert observation v ~ N(Lx, Σ)
-    to triplet  (H, F, C)
-"""
-function observation_HFC(v, L, Σ)
-    A = L' * inv(Σ)
-    H = A*L
-    H, A*v, - logpdf(Bridge.Gaussian(zero(v), Σ), v)
-end
-    
 """
     fusion_HFC((H1, F1, C1), (H2, F2, C2))
 
@@ -301,59 +233,6 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = 0, i
 end
 
 
-function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
-    function dHFC(y, ℙ̃, s) # note interchanged order of arguments
-        access = Val{}(dim(ℙ̃))
-        H, F, C = static_accessor_HFc(y, access)
-        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
-    
-        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
-        dF = - (_B' * F) + H * (_a * F + _β) 
-        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
-        vectorise(dH, dF, dC)
-    end
-    yT = vectorise(HT, FT, CT)
-    prob = ODEProblem{false}(
-            dHFC,   # increment
-            yT, # starting val
-            (tt[end], tt[1]),   # time interval
-            ℙ̃)  # parameter
-    access = Val{}(dim(ℙ̃))
-    TP = typeof(HT); Tν= typeof(FT); Tc = typeof(CT)
-    saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
-    callback = SavingCallback(
-        (u,t,integrator) -> static_accessor_HFc(u, access),
-        saved_values;
-        saveat=reverse(tt), 
-        tdir=-1
-    )
-    integrator = init(
-        prob,
-        D.solvertype,
-        callback=callback,
-        save_everystep=false, # to prevent wasting memory allocations
-    )
-    sol = DifferentialEquations.solve!(integrator)   # s
-    
-    savedt = saved_values.t
-    ss = saved_values.saveval
-    reverse!(ss)
-    for i ∈ eachindex(savedt)
-        Ht[i] = getindex.(ss,1)[i]
-        Ft[i] = getindex.(ss,2)[i]
-    end
-    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
-
-    Ht, Ft, C
-end
-
-
-
-################################################################################
-
-
-
-
 function forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, verbose=false)
     acc = false
     sample!(Wbuffer, wienertype(𝒫.ℙ))
@@ -374,6 +253,18 @@ function forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, ver
     end
     println()
     (X, W, ll), acc 
+end
+
+
+
+function init_forwardguide(x0, 𝒫s)
+    xend = x0
+    ℐs = PathInnovation[]
+    for i ∈ eachindex(𝒫s)
+        push!(ℐs, PathInnovation(xend, 𝒫s[i]))
+        xend = lastval(ℐs[i])
+    end
+    ℐs
 end
 
 
@@ -415,17 +306,13 @@ function forwardguide(x0, ℐs::Vector{PathInnovation} , 𝒫s, ρ; skip=sk, ver
 end
 
 
-
-
-
-function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M)
+function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
     Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
     n = length(obs)
 
     HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
     𝒫s = GuidedProcess[]
     for i in n:-1:2
-        tt = timegrid(obs[i-1].t, obs[i].t, M=M)
         𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, timegrids[i-1], HT, FT, CT)
         pushfirst!(𝒫s, 𝒫)
         message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
@@ -437,4 +324,4 @@ end
 
 
 
-timegrids = set_timegrids(obs,100)
+
