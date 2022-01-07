@@ -41,7 +41,7 @@ function init_HFC(v, L, d::Int64; ϵ=0.01)
     P = ϵ^(-1)*SMatrix{d,d}(1.0I)
     xT = L\v
     z = zero(xT)
-    C = -logpdf(Bridge.Gaussian(z, P), z) 
+    C = logpdf(Bridge.Gaussian(z, P), z) 
     convert_PνC_to_HFC(P, xT ,C)
 end
 
@@ -54,8 +54,7 @@ end
 """
 function observation_HFC(v, L, Σ)
     A = L' * inv(Σ)
-    H = A*L
-    H, A*v, - logpdf(Bridge.Gaussian(zero(v), Σ), v)
+    A*L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v)
 end
 
 

@@ -6,7 +6,7 @@ using DataFrames
 using CSV
 using ForwardDiff
 using DifferentialEquations
-
+using Setfield
 
 import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, Euler, solve, solve!
 import ForwardDiff: jacobian
@@ -52,14 +52,15 @@ m,  = size(L)
 
 obstimes = Xf.tt[1:100:end]
 obsvals = map(x -> L*x, Xf.yy[1:100:end])
+
+#------- process observations
 obs = Observation[]
 for i ∈ eachindex(obsvals)
     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
 end
 timegrids = set_timegrids(obs, 100)
 
-
-# Backwards filtering
+#------- Backwards filtering
 @time (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
 
 # Forwards guiding initialisation
@@ -81,7 +82,7 @@ timegrids = set_timegrids(obs, 100)
         end
 
 # Forwards guiding pCN
-ℐs, acc = forwardguide(x0, ℐs, 𝒫s, ρ);
+ℐs, acc = forwardguide!(ℐs, 𝒫s, x0, ρ);
 
 
 
@@ -97,12 +98,34 @@ XX = Any[]
 acc = 0
 for iter in 1:iterations
     global acc
-    ℐs, a = forwardguide(x0, ℐs, 𝒫s, ρ, verbose=true);
+    ℐs, a = forwardguide!(ℐs, 𝒫s, x0, ρ, verbose=false);
     acc += a
     (iter in subsamples) && push!(XX, mergepaths(ℐs))    #    push!(XX, copy(X))
 end
 
 say("Joehoe, klaar met rekenen")
+
+ℐsᵒ = similar(ℐs) # need to create only once
+(𝒫s, ℐs, a, acc) = parupdate(obs, timegrids, x0, 𝒫s, ℐs, ℐsᵒ);
+(a, acc)
+
+
+priorθ = Dict(:A => Uniform(0.0, 20.0), 
+			  :B => Uniform(0.0, 50.0), 
+			  :C => TruncatedNormal(100,50,0.0,Inf64), 
+			  :μy=> Normal(0.0, 10.0^6), 
+			  :σy => Uniform(10.0, 5000.0))
+
+
+
+
+
+
+
+
+
+
+
 
 
 #--------- plotting 
@@ -151,6 +174,14 @@ dev.off()
 
 
 
+###### do parameter updating
+
+
+
+
+
+
+
 
 
 
@@ -177,5 +208,8 @@ if false
     p = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3))
     plot!(p, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3))
 end
+
+
+
 
 
