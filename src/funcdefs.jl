@@ -303,7 +303,7 @@ end
 function forwardguide!(ℐs::Vector{PathInnovation}, 𝒫s, x0, ρ; skip=sk, verbose=false)
     acc = 0
     xend = x0  
-    for i ∈ 1:n-1
+    for i ∈ eachindex(ℐs)
         (ℐs[i], xend, a) = forwardguide(ℐs[i], 𝒫s[i], xend, ρ; skip=skip, verbose=verbose);
         acc += a
     end
@@ -320,7 +320,7 @@ end
 
 function forwardguide_innovationsfixed!(ℐsᵒ::Vector{PathInnovation}, ℐs, x0, 𝒫s; skip=sk)
     xend = x0  
-    for i ∈ 1:n-1
+    for i ∈ eachindex(ℐs)
         (ℐsᵒ[i], xend) = forwardguide_innovationsfixed(ℐs[i], 𝒫s[i], xend; skip=skip)
     end
     ℐs

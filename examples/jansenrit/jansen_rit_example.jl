@@ -41,7 +41,7 @@ Xf_prelim = solve(Euler(), x0, W, ℙ)
 Xf = SamplePath(Xf_prelim.tt[1001:end], Xf_prelim.yy[1001:end])
 x0 = Xf.yy[1]
 using Plots
-k = 3; plot(Xf.tt, getindex.(Xf.yy,k))
+k = 6; plot(Xf.tt, getindex.(Xf.yy,k))
 
 
 #------  set observations
@@ -50,15 +50,15 @@ m,  = size(L)
 Σdiagel = 10e-9
 Σ = SMatrix{m,m}(Σdiagel*I)
 
-obstimes = Xf.tt[1:100:end]
-obsvals = map(x -> L*x, Xf.yy[1:100:end])
+obstimes = Xf.tt[1:1000:end]
+obsvals = map(x -> L*x, Xf.yy[1:1000:end])
 
 #------- process observations
 obs = Observation[]
 for i ∈ eachindex(obsvals)
     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
 end
-timegrids = set_timegrids(obs, 100)
+timegrids = set_timegrids(obs, 1000)
 
 #------- Backwards filtering
 @time (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
@@ -71,14 +71,14 @@ timegrids = set_timegrids(obs, 100)
         ec(x,i) = getindex.(x,i)
 
         p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,1), label="")
-        for k in 2:n-1
+        for k in 2:length(ℐs)
         plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,1), label="")
         end
         p
 
         # check whether interpolation goes fine
-        for i in 2:n-1
-        println( obs[i+1].v - obs[i].L * ℐs[i].X.yy[end]  )
+        for i in 2:length(obs)
+        println( obs[i].v - obs[i].L * lastval(ℐs[i-1]) )
         end
 
 # Forwards guiding pCN
