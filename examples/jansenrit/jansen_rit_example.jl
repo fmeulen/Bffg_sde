@@ -7,9 +7,11 @@ using CSV
 using ForwardDiff
 using DifferentialEquations
 using Setfield
+using Plots
 
 import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, Euler, solve, solve!
 import ForwardDiff: jacobian
+
 
 wdir = @__DIR__
 cd(wdir)
@@ -28,98 +30,157 @@ sk = 0 # skipped in evaluating loglikelihood
 Random.seed!(5)
 
 θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+#θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 0.0, 2000.0]
 ℙ = JansenRitDiffusion(θtrue...)
-T = 10.0
+T = 1.0
 ℙ̃ = JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, T)
 
 
 #---- generate test data
 x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
-W = sample((-1.0):0.001:T, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
+W = sample((-1.0):0.0001:T, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
 Xf_prelim = solve(Euler(), x0, W, ℙ)
 # drop initial nonstationary behaviour
-Xf = SamplePath(Xf_prelim.tt[1001:end], Xf_prelim.yy[1001:end])
+Xf = SamplePath(Xf_prelim.tt[10001:end], Xf_prelim.yy[10001:end])
 x0 = Xf.yy[1]
-using Plots
-k = 6; plot(Xf.tt, getindex.(Xf.yy,k))
 
 
 #------  set observations
 L = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
 m,  = size(L)
-Σdiagel = 10e-9
+Σdiagel = 10e-5
 Σ = SMatrix{m,m}(Σdiagel*I)
 
-obstimes = Xf.tt[1:1000:end]
-obsvals = map(x -> L*x, Xf.yy[1:1000:end])
+skipobs = 500#length(Xf.tt)-1 #200
+obstimes =  Xf.tt[1:skipobs:end]
+obsvals = map(x -> L*x, Xf.yy[1:skipobs:end])
+plot_all(Xf)
+savefig("forwardsimulated.png")
+
+
 
 #------- process observations
 obs = Observation[]
 for i ∈ eachindex(obsvals)
     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
 end
-timegrids = set_timegrids(obs, 1000)
-
+timegrids = set_timegrids(obs, 0.0005)
+ρ = 0.8
+ρs = fill(ρ, length(timegrids))
 #------- Backwards filtering
-@time (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
+(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
 
 # Forwards guiding initialisation
-ℐs = init_forwardguide(x0, 𝒫s)
+ℐs = forwardguide(x0, 𝒫s, ρs);
+plot_all(ℐs)
+savefig("guidedinitial.png")
 
 
-    # plotting and checking
-        ec(x,i) = getindex.(x,i)
+# check whether interpolation goes fine
+ 
+deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
+#plot(obstimes[2:end], map(x-> x[1,1], deviations))
 
-        p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,1), label="")
-        for k in 2:length(ℐs)
-        plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,1), label="")
-        end
-        p
-
-        # check whether interpolation goes fine
-        for i in 2:length(obs)
-        println( obs[i].v - obs[i].L * lastval(ℐs[i-1]) )
-        end
-
+    
 # Forwards guiding pCN
-ℐs, acc = forwardguide!(ℐs, 𝒫s, x0, ρ);
+ℐs, acc = forwardguide!(PCN(), ℐs, 𝒫s, x0);
+plot_all(ℐs)
+savefig("guidedinitial_onepCNstep.png")
+
+
+
+#---------------------- a program
+
 
 
 
 # settings sampler
-iterations = 25 # 5*10^4
+iterations = 130 # 5*10^4
 skip_it = 10  #1000
 subsamples = 0:skip_it:iterations
 
 XX = Any[]
 (0 in subsamples) &&    push!(XX, mergepaths(ℐs))
 
+ℙinit = ℙ # @set ℙ.A=100.0
+ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
+
+
+(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
+
+ρs = fill(.5, length(timegrids))
+ℐs = forwardguide(x0, 𝒫s, ρs)
+plot_all(ℐs)
+savefig("guidedinitial.png")
+
+# testing 
+# k=3
+#ℐs, a =
+
+
+forwardguide!(PCN(), ℐs, 𝒫s, x0);
+ ℐ, 𝒫 =  ℐs[end], 𝒫s[end];
+ va = checkcorrespondence(ℐ, 𝒫)
+
+ forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0; skip=sk, verbose=true);
+ ℐ, 𝒫 =  ℐs[end], 𝒫s[end]
+ va = checkcorrespondence(ℐ, 𝒫)
+
+
+ 
+
+# ρ = .5
+
+
+# ℐ, 𝒫 =  ℐs[1], 𝒫s[1]
+# ℐ, lastX, acc =    forwardguide(PCN(), ℐ, 𝒫,  x0, ρ);
+# va = checkcorrespondence(ℐ, 𝒫)
+
+
+𝒫sᵒ = deepcopy(𝒫s)
+ℐsᵒ = deepcopy(ℐs) # need to create only once
+θθ =[getpar(𝒫s[1].ℙ)]
+
+# estimate (C)
+tp = [2.0] # 20.0*[0.1 0.0; 0.0 0.1]
 
 acc = 0
 for iter in 1:iterations
-    global acc
-    ℐs, a = forwardguide!(ℐs, 𝒫s, x0, ρ, verbose=false);
+    global acc, ℐs, 𝒫s, ℐsᵒ, 𝒫sᵒ
+    ℐs, a = forwardguide!(PCN(), ℐs, 𝒫s, x0,  verbose=true);
+    #ℐs, a = forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0,  verbose=true);
+
     acc += a
-    (iter in subsamples) && push!(XX, mergepaths(ℐs))    #    push!(XX, copy(X))
+    (iter in subsamples) && push!(XX, mergepaths(ℐs))    #  or use copy(X)  ?
+    println(iter)
+
+
+    if iter>190
+     (θ, accθ) = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ); tuningpars = tp)
+    if iter==500
+        #tp = cov(hcat(ec(θθ,1), ec(θθ,2))) * (2.38)^2/6.0
+    end
+
+    #println(accθ)
+    push!(θθ, θ)
+    end
 end
 
-say("Joehoe, klaar met rekenen")
-
-ℐsᵒ = similar(ℐs) # need to create only once
-(𝒫s, ℐs, a, acc) = parupdate(obs, timegrids, x0, 𝒫s, ℐs, ℐsᵒ);
-(a, acc)
-
-
-priorθ = Dict(:A => Uniform(0.0, 20.0), 
-			  :B => Uniform(0.0, 50.0), 
-			  :C => TruncatedNormal(100,50,0.0,Inf64), 
-			  :μy=> Normal(0.0, 10.0^6), 
-			  :σy => Uniform(10.0, 5000.0))
 
 
 
+#say("Joehoe, klaar met rekenen")
+
+plot_all(ℐs)
+savefig("guidedfinal.png")
 
 
+pth1 = plot(ec(θθ,1))
+# pth2 = plot(ec(θθ,2))
+# plot(pth1, pth2, layout= (@layout [a b]))
+savefig("thetas.png")
+
+println(θθ)
 
 
 
@@ -127,6 +188,26 @@ priorθ = Dict(:A => Uniform(0.0, 20.0),
 
 
 
+
+
+
+# priorθ = Dict(:A => Uniform(0.0, 20.0), 
+# 			  :B => Uniform(0.0, 50.0), 
+# 			  :C => TruncatedNormal(100,50,0.0,Inf64), 
+# 			  :μy=> Normal(0.0, 10.0^6), 
+# 			  :σy => Uniform(10.0, 5000.0))
+
+
+
+
+
+
+
+
+
+
+
+if false 
 
 #--------- plotting 
 extractcomp(v,i) = map(x->x[i], v)
@@ -173,41 +254,15 @@ dev.off()
 """
 
 
-
-###### do parameter updating
-
-
-
-
-
-
-
-
-
-
-
-if false 
-    using Plots
-    l = @layout [a b c ; d e f]
-    p1 = plot(X.tt, getindex.(X.yy,1))
-    plot!(p1, Xf.tt, getindex.(Xf.yy,1))
-    p2 = plot(X.tt, getindex.(X.yy,2))
-    plot!(p2, Xf.tt, getindex.(Xf.yy,2))
-    p3 = plot(X.tt, getindex.(X.yy,3))
-    plot!(p3, Xf.tt, getindex.(Xf.yy,3))
-    p4 = plot(X.tt, getindex.(X.yy,4))
-    plot!(p4, Xf.tt, getindex.(Xf.yy,4))
-    p5 = plot(X.tt, getindex.(X.yy,5))
-    plot!(p5, Xf.tt, getindex.(Xf.yy,5))
-    p6 = plot(X.tt, getindex.(X.yy,6))
-    plot!(p6, Xf.tt, getindex.(Xf.yy,6))
-    plot(p1,p2,p3,p4,p5,p6, layout=l)
-
-    LT*X.yy[end] - vT
-
-    p = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3))
-    plot!(p, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3))
 end
+
+
+
+
+
+
+
+
 
 
 

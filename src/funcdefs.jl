@@ -1,4 +1,3 @@
-
 abstract type Solver end
 
 struct RK4 <: Solver end
@@ -10,6 +9,11 @@ struct Adaptive <: Solver end
     struct AssumedDensityFiltering{T} <: Solver 
     solvertype::T
 end
+
+
+abstract type  GuidType end
+struct PCN <: GuidType  end
+struct InnovationsFixed <: GuidType end
 
 
 """
@@ -49,19 +53,20 @@ struct PathInnovation{TX, TW, Tll}
     Xᵒ::TX
     Wᵒ::TW
     Wbuf::TW
-    PathInnovation(X::TX, W::TW, ll::Tll, Xᵒ::TX, Wᵒ::TW, Wbuf::TW) where {TX, Tll, TW} =
-    new{TX,TW,Tll}(X, W, ll, Xᵒ, Wᵒ, Wbuf)
+    ρ::Float64
+    PathInnovation(X::TX, W::TW, ll::Tll, Xᵒ::TX, Wᵒ::TW, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
+    new{TX,TW,Tll}(X, W, ll, Xᵒ, Wᵒ, Wbuf, ρ)
 
-    function PathInnovation(x0, 𝒫)
+    function PathInnovation(x0, 𝒫, ρ)
         tt = 𝒫.tt
         W = sample(tt, wienertype(𝒫.ℙ))    
-        X = solve(Euler(), x0, W, 𝒫.ℙ)  # allocation
-        solve!(Euler(),X, x0, W, 𝒫)
+        X = solve(Euler(), x0, W, 𝒫)  # allocation
+        #solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
         Xᵒ = deepcopy(X)
         ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
         Wᵒ = deepcopy(W)
         Wbuf = deepcopy(W)
-        PathInnovation(X,W,ll,Xᵒ, Wᵒ, Wbuf)
+        PathInnovation(X,W,ll,Xᵒ, Wᵒ, Wbuf, ρ)
     end
 end
 
@@ -108,6 +113,12 @@ struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
         GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
 end
+
+function convert_PνC_to_HFC(P,ν,C)
+    H = inv(P)
+    H, P\ν, C
+end   
+
 
 
 """
@@ -214,7 +225,7 @@ Bridge.a(t, x, 𝒫::GuidedProcess) = Bridge.a(t, x, 𝒫.ℙ)
 Bridge.constdiff(𝒫::GuidedProcess) = Bridge.constdiff(𝒫.ℙ) && Bridge.constdiff(𝒫.ℙ̃)
 
 
-function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = 0)
+function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = sk)
     tt = X.tt
     xx = X.yy
     som::Float64 = 0.
@@ -262,11 +273,11 @@ end
 
 
 
-function init_forwardguide(x0, 𝒫s)
+function forwardguide(x0, 𝒫s, ρs)
     xend = x0
     ℐs = PathInnovation[]
     for i ∈ eachindex(𝒫s)
-        push!(ℐs, PathInnovation(xend, 𝒫s[i]))
+        push!(ℐs, PathInnovation(xend, 𝒫s[i], ρs[i]))
         xend = lastval(ℐs[i])
     end
     ℐs
@@ -281,53 +292,93 @@ end
     xend: endpoint of updated samplepath x
     acc: Booolean if pCN step was accepted
 """
-function forwardguide(ℐ::PathInnovation, 𝒫, x0, ρ; skip=sk, verbose=false)
+function forwardguide!(::PCN, ℐ::PathInnovation, 𝒫, x0, ρ; skip=sk, verbose=false)
     X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
     sample!(Wbuf, wienertype(𝒫.ℙ))
     Wᵒ.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*Wbuf.yy
     solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
     llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=skip)
 
-    !verbose && print("ll $ll $llᵒ, diff_ll: ",round(llᵒ-ll;digits=3))
-    if log(rand()) <= llᵒ - ll
+    !verbose && print("ll $ll $llᵒ, diff_ll: ",round(llᵒ-ll;digits=3)) # here it goes wrong
+    if log(rand()) < (llᵒ - ll)
         !verbose && print("✓")    
         !verbose && println()
-        return (PathInnovation(Xᵒ, Wᵒ, llᵒ, Xᵒ, Wᵒ, Wbuf), lastval(Xᵒ), true)
+        ℐ = @set ℐ.X = Xᵒ
+        ℐ = @set ℐ.W = Wᵒ
+        ℐ = @set ℐ.ll = llᵒ
+        # X.yy .= Xᵒ.yy
+        # W.yy .= Wᵒ.yy
+        # ll = llᵒ
+        # ℐ = PathInnovation(Xᵒ, Wᵒ, llᵒ, Xᵒ, Wᵒ, Wbuf, ρ)
+    #    checkcorrespondence(ℐ, 𝒫)
+        return (lastval(Xᵒ), true)
     else
         !verbose && println()
-        return (ℐ, lastval(X), false)
+        #ℐ = PathInnovation(X, W, ll, Xᵒ, Wᵒ, Wbuf, ρ)
+    #    checkcorrespondence(ℐ, 𝒫)
+        return (lastval(X), false)
     end
 end
 
 
-function forwardguide!(ℐs::Vector{PathInnovation}, 𝒫s, x0, ρ; skip=sk, verbose=false)
+function forwardguide!(::InnovationsFixed, ℐ::PathInnovation, 𝒫, x0, ρ; skip=sk, verbose=false)
+    X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
+    solve!(Euler(),Xᵒ, x0, W, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=skip)
+    #return (PathInnovation(Xᵒ, Wᵒ, llᵒ, Xᵒ, Wᵒ, Wbuf, ρ), lastval(Xᵒ), true)
+    #ℐ = PathInnovation(X, W, llᵒ, Xᵒ, Wᵒ, Wbuf, ρ)
+    ℐ = @set ℐ.X = Xᵒ
+    ℐ = @set ℐ.ll = llᵒ
+    (lastval(Xᵒ), true)
+end
+
+
+# ℐ = ℐs[1]
+# 𝒫 = 𝒫s[1]
+
+# X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
+# solve!(Euler(),X, x0, W, 𝒫)
+# Y = deepcopy(X)
+# solve!(Euler(),Y, x0, W, 𝒫)
+# Y.yy==X.yy
+# Y.yy-X.yy
+
+# ℐ.W==W
+# ℐ.X==X
+# ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
+# ℐ.ll
+# ℐ.ll == ll
+
+
+
+function forwardguide!(gt::GuidType, ℐs::Vector{PathInnovation}, 𝒫s, x0; skip=sk, verbose=false)
     acc = 0
     xend = x0  
     for i ∈ eachindex(ℐs)
-        (ℐs[i], xend, a) = forwardguide(ℐs[i], 𝒫s[i], xend, ρ; skip=skip, verbose=verbose);
+        (xend, a) = forwardguide!(gt, ℐs[i], 𝒫s[i], xend, ℐs[i].ρ; skip=skip, verbose=verbose);
         acc += a
     end
     ℐs, acc
 end
 
 
-function forwardguide_innovationsfixed(ℐ, 𝒫, x0; skip=skip)
-    X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
-    solve!(Euler(),Xᵒ, x0, W, 𝒫)
-    llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=skip)
-    (PathInnovation(Xᵒ, W, llᵒ, Xᵒ, Wᵒ, Wbuf), lastval(Xᵒ))
-end    
+# function forwardguide_innovationsfixed!(ℐᵒ, ℐ, 𝒫ᵒ, x0; skip=skip)
+#     W, X = ℐ.W, ℐᵒ.X
+#     solve!(Euler(),X, x0, W, 𝒫ᵒ)
+#     ll = llikelihood(Bridge.LeftRule(), X, 𝒫ᵒ, skip=skip)
+#     ℐᵒ = @set ℐᵒ.W=W
+#     ℐᵒ = @set ℐᵒ.X=X
+#     ℐᵒ = @set ℐᵒ.ll=ll
+#     ℐᵒ, lastval(X)
+# end    
 
-function forwardguide_innovationsfixed!(ℐsᵒ::Vector{PathInnovation}, ℐs, x0, 𝒫s; skip=sk)
-    xend = x0  
-    for i ∈ eachindex(ℐs)
-        (ℐsᵒ[i], xend) = forwardguide_innovationsfixed(ℐs[i], 𝒫s[i], xend; skip=skip)
-    end
-    ℐs
-end
-
-
-
+# function forwardguide_innovationsfixed!(ℐsᵒ::Vector{PathInnovation}, ℐs, x0, 𝒫sᵒ; skip=sk)
+#     xend = x0  
+#     for i ∈ eachindex(ℐs)
+#         ℐsᵒ[i], xend = forwardguide_innovationsfixed!(ℐsᵒ[i], ℐs[i], 𝒫sᵒ[i], xend; skip=skip)
+#     end
+#     ℐsᵒ
+# end
 
 function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
     Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
@@ -335,6 +386,7 @@ function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
 
     HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
     𝒫s = GuidedProcess[]
+
     for i in n-1:-1:1
         𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, timegrids[i], HT, FT, CT)
         pushfirst!(𝒫s, 𝒫)
@@ -345,23 +397,99 @@ function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
 end
 
 
+function backwardfiltering!(𝒫s, obs, timegrids; ϵ = 10e-2)
+    Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(𝒫s[1].ℙ); ϵ=ϵ)
+    n = length(obs)
 
-
-
-
-
-function parupdate(obs, timegrids, x0, 𝒫s, ℐs, ℐsᵒ)
-    ℙ, ℙ̃ = 𝒫s[1].ℙ, 𝒫s[1].ℙ̃
-    aᵒ = ℙ.a + 300*rand(Uniform(-0.1, 0.1))
-    ℙᵒ = @set ℙ.a=aᵒ
-    ℙ̃ᵒ = @set ℙ̃.a=aᵒ
+    HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
     
-    (H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering(obs, timegrids, ℙᵒ, ℙ̃ᵒ);
-    ℐsᵒ = forwardguide_innovationsfixed!(ℐsᵒ, ℐs, x0, 𝒫sᵒ; skip=sk)
-    diff_ll = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
+    for i in n-1:-1:1
+        𝒫s[i] = GuidedProcess(DE(Vern7()), 𝒫s[i].ℙ, 𝒫s[i].ℙ̃, timegrids[i], HT, FT, CT)
+        message = (𝒫s[i].H[1], 𝒫s[i].F[1], 𝒫s[i].C[1])
+        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
+    end
+    (HT, FT, CT), 𝒫s
+end
+
+
+
+getpar(ℙ::JansenRitDiffusion) = [ℙ.C] # [ℙ.A, ℙ.B]
+
+#parameterkernel(θ, tuningpars) = θ + rand(MvNormal(length(θ), tuningpars))
+parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
+
+
+
+function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ); tuningpars)
+    θ = getpar(𝒫s[1].ℙ)
+    θᵒ = parameterkernel(θ, tuningpars)  
+    θᵒ = θ
+    println(θᵒ)
+    for i ∈ eachindex(𝒫sᵒ)
+        𝒫sᵒ = @set 𝒫sᵒ[i].ℙ.C=θᵒ[1]
+  
+        # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ.b=θᵒ[2]
+        # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ̃.a=θᵒ[1]
+        # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ̃.b=θᵒ[2]
+
+        ℐsᵒ = @set ℐsᵒ[i].W = ℐs[i].W
+        ℐsᵒ = @set ℐsᵒ[i].ll = ℐs[i].ll
+    end
+
+    #  for k in eachindex(ℐs)
+    #   println(    ℐsᵒ[k].W == ℐs[k].W)
+    #  end
+
+
+    #  for k in eachindex(ℐs)
+    #      println(    ℐsᵒ[k].X == ℐs[k].X)
+    #     end
+   
+    #     for k in eachindex(ℐs)
+    #         println(    ℐsᵒ[k].X.yy - ℐs[k].X.yy)
+    #        end
+      
+
+
+    #(H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering!(𝒫sᵒ, obs, timegrids);
+    ℐsᵒ, _ = forwardguide!(InnovationsFixed(), ℐsᵒ, 𝒫sᵒ, x0; skip=sk, verbose=true);
+    
+    # ℐ, 𝒫 =  ℐsᵒ[3], 𝒫sᵒ[3]
+    # va = checkcorrespondence(ℐ, 𝒫)
+  
+    # println(loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ))
+    
+    # println(lastval(ℐsᵒ[end]))
+
+    # sum(map(x -> x.ll, ℐsᵒ))
+
+    #diff_ll = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
+    diff_ll = loglik(x0, (H0,F0,C0), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
+    println("diff_ll", diff_ll)
     if log(rand()) < diff_ll
-        return (𝒫sᵒ, ℐsᵒ, aᵒ, true)
+        @. 𝒫s = 𝒫sᵒ
+        @. ℐs = ℐsᵒ
+        return (θᵒ, true)
     else
-        return (𝒫s, ℐs, a, false)
+        return (θ, false)
     end   
 end
+
+
+
+
+function checkcorrespondence(ℐ::PathInnovation, 𝒫::GuidedProcess)
+    Y = deepcopy(ℐ.X)
+    llY = deepcopy(ℐ.ll)
+
+    x_ = ℐ.X.yy[1]
+    solve!(Euler(),Y, x_, ℐ.W, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), Y, 𝒫, skip=sk)
+
+    println("paths consistent?", Y==ℐ.X)
+    println("ll consistent?", abs(llY-llᵒ) <10e-7)
+    println(Y.yy - ℐ.X.yy, llY-llᵒ)
+end
+
+
+

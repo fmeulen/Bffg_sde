@@ -78,4 +78,60 @@ end
 
 timegrid(S, T, M) = τ(S,T).(collect(range(S, T, length=M)))
 
-set_timegrids(obs, M) =  [timegrid(obs[i-1].t, obs[i].t, M) for i ∈ 2:length(obs)]
+function set_timegrids(obs, dt)  
+    out=Vector{Float64}[]
+    for i ∈ 1:length(obs)-1
+        M = Int64(ceil((obs[i+1].t-obs[i].t)/dt))
+        push!(out, timegrid(obs[i].t, obs[i+1].t, M))
+    end
+    out
+end
+
+
+
+# plotting
+
+
+ec(x,i) = getindex.(x,i)
+
+function plot_(ℐs::Vector{PathInnovation},comp::Int)
+    p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,comp), label="")
+    for k in 2:length(ℐs)
+      plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,comp), label="")
+    end
+    p
+end
+
+function plot_(ℐs::Vector{PathInnovation},comp::String)
+    p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,2) - ec(ℐs[1].X.yy,3) , label="")
+    for k in 2:length(ℐs)
+      plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,2) - ec(ℐs[k].X.yy,3), label="")
+    end
+    p
+end
+
+
+
+function plot_all(ℐs::Vector{PathInnovation})
+    p1 = plot_(ℐs,1)
+    p2 = plot_(ℐs,2)
+    p3 = plot_(ℐs,3)
+    p4 = plot_(ℐs,4)
+    p5 = plot_(ℐs,5)
+    p6 = plot_(ℐs,6)
+    p2_3 = plot_(ℐs,"23")
+    l = @layout [a b c ; d e f; g]
+    plot(p1, p2, p3, p4, p5, p6, p2_3, layout=l)
+end
+
+function plot_all(X::SamplePath)
+    p1 = plot(X.tt, getindex.(X.yy,1), label="1")
+    p2 = plot(X.tt, getindex.(X.yy,2), label="2")
+    p3 = plot(X.tt, getindex.(X.yy,3), label="3")
+    p4 = plot(X.tt, getindex.(X.yy,4), label="4")
+    p5 = plot(X.tt, getindex.(X.yy,5), label="5")
+    p6 = plot(X.tt, getindex.(X.yy,6), label="6")
+    p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="2-3")
+    l = @layout [a b c; d e f; g]
+    plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
+end

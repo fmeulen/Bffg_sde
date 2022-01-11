@@ -309,7 +309,3 @@ function convert_HFC_to_PνC(H,F,C)
     P, P*F, C
 end   
 
-function convert_PνC_to_HFC(P,ν,C)
-    H = inv(P)
-    P, P\ν, C
-end   

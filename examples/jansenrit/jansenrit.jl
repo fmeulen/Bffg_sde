@@ -15,7 +15,7 @@ struct JansenRitDiffusion{T} <: ContinuousTimeProcess{ℝ{6}}
 end
 
 sigm(x, ℙ::JansenRitDiffusion) = ℙ.νmax / (1.0 + exp(ℙ.r*(ℙ.v - x)))
-μy(t, ℙ::JansenRitDiffusion) = ℙ.μy #constant
+μy(t, ℙ::JansenRitDiffusion) =  ℙ.a * ℙ.A * ℙ.μy #constant
 C1(ℙ::JansenRitDiffusion) = ℙ.C
 C2(ℙ::JansenRitDiffusion) = ℙ.α1*ℙ.C
 C3(ℙ::JansenRitDiffusion) = ℙ.α2*ℙ.C
@@ -69,7 +69,7 @@ end
 #                 0.0 0.0 0.0 0.0 0.0 0.0]
 # end
 
-Bridge.β(t, ℙ::JansenRitDiffusionAux) = @SVector [0.0, 0.0, 0.0, 0.0, ℙ.μy , 0.0]
+Bridge.β(t, ℙ::JansenRitDiffusionAux) = @SVector [0.0, 0.0, 0.0, 0.0, ℙ.a * ℙ.A * ℙ.μy , 0.0]
 Bridge.σ(t,  ℙ::JansenRitDiffusionAux) = ℝ{6}(0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0)
 
 Bridge.σ(t, x,  ℙ::JansenRitDiffusionAux) = Bridge.σ(t,  ℙ)
