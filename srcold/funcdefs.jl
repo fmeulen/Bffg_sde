@@ -50,18 +50,23 @@ struct PathInnovation{TX, TW, Tll}
     X::TX
     W::TW
     ll::Tll
+    Xᵒ::TX
+    Wᵒ::TW
     Wbuf::TW
     ρ::Float64
-    PathInnovation(X::TX, W::TW, ll::Tll, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
-    new{TX,TW,Tll}(X, W, ll, Wbuf, ρ)
+    PathInnovation(X::TX, W::TW, ll::Tll, Xᵒ::TX, Wᵒ::TW, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
+    new{TX,TW,Tll}(X, W, ll, Xᵒ, Wᵒ, Wbuf, ρ)
 
     function PathInnovation(x0, 𝒫, ρ)
         tt = 𝒫.tt
         W = sample(tt, wienertype(𝒫.ℙ))    
-        X = solve(Euler(), x0, W, 𝒫)  # allocation        
+        X = solve(Euler(), x0, W, 𝒫)  # allocation
+        #solve!(Euler(),Xᵒ, x0, Wᵒ, 𝒫)
+        Xᵒ = deepcopy(X)  # allocation#
         ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
+        Wᵒ = deepcopy(W)
         Wbuf = deepcopy(W)
-        PathInnovation(X, W, ll, Wbuf, ρ)
+        PathInnovation(X,W,ll,Xᵒ, Wᵒ, Wbuf, ρ)
     end
 end
 
@@ -275,51 +280,59 @@ function forwardguide(x0, 𝒫s, ρs)
         push!(ℐs, PathInnovation(xend, 𝒫s[i], ρs[i]))
         xend = lastval(ℐs[i])
     end
-    H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
-    loglik = logh̃(x0, (H0,F0,C0)) + sum(map(x -> x.ll, ℐs))
-    ℐs, loglik
+    ℐs
 end
+
 
 """
     forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
 
     Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
 """
-function forwardguide!(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-        X, W, ll, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Wbuf
-        solve!(Euler(), X, x0, W, 𝒫)
-        ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
+function forwardguide!(::PCN, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)    
+    X, W, ll, Xᵒ, Wᵒ, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Xᵒ, ℐ.Wᵒ, ℐ.Wbuf
+    sample!(Wbuf, wienertype(𝒫.ℙ))
+    ρ = ℐ.ρ
+    W.yy .= ρ*W.yy + sqrt(1.0-ρ^2)*Wbuf.yy
+    solve!(Euler(), Xᵒ, x0, Wᵒ, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=sk)
+
+#     diffll = llᵒ - ll
+#     !verbose && print("ll $ll $llᵒ, diff_ll: ",round(diffll;digits=3)) # here it goes wrong
+#     if log(rand()) < diffll
+#         !verbose && print("✓")    
+#         !verbose && println()
+#         X.yy .= Xᵒ.yy
+#         W.yy .= Wᵒ.yy
+#         ll = llᵒ
+# #        ℐ = PathInnovation(copy(Xᵒ),copy(Wᵒ),llᵒ,Xᵒ,Wᵒ, Wbuf, ρ)
+#         acc = true
+#     else
+#         !verbose && println()
+#         acc = false
+#     end
+#     checkcorrespondence(ℐ, 𝒫)
+    lastval(ℐ), acc
 end
+
+
+
 
 """
     forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
 
     Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
 """
-# function forwardguide!(::PCN, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-#     Xᵒ, Wᵒ, Wbufᵒ = ℐᵒ.X, ℐᵒ.W, ℐᵒ.Wbuf
-#     sample!(Wbufᵒ, wienertype(𝒫.ℙ))
-#     ρ = ℐᵒ.ρ
-#     Wᵒ.yy .= ρ * ℐ.W.yy + sqrt(1.0-ρ^2)*Wbufᵒ.yy
-#     solve!(Euler(), Xᵒ, x0, Wᵒ, 𝒫)
-#     llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=sk)
-#     ℐᵒ = @set ℐᵒ.ll= llᵒ
-
-#     lastval(ℐᵒ)
-# end
-
-
-function forwardguide!(::PCN, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-    
-    sample!(ℐᵒ.Wbuf, wienertype(𝒫.ℙ))
-    ρ = ℐᵒ.ρ
-    ℐᵒ.W.yy .= ρ * ℐ.W.yy + sqrt(1.0-ρ^2)*ℐᵒ.Wbuf.yy
-    solve!(Euler(), ℐᵒ.X, x0, ℐᵒ.W, 𝒫)
-    llᵒ = llikelihood(Bridge.LeftRule(), ℐᵒ.X, 𝒫, skip=sk)
-    #@set! ℐᵒ.ll = llᵒ
-
-    lastval(ℐᵒ), llᵒ
+function forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
+    X, W = ℐ.X, ℐ.W
+    solve!(Euler(),X, x0, W, 𝒫)
+    ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=skip)
+    ℐ = @set ℐ.X = X
+    ℐ = @set ℐ.ll = ll
+    ℐ, lastval(ℐ), true
 end
+
+
 
 """
     forwardguide!(gt::GuidType, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0; skip=sk, verbose=false)
@@ -329,16 +342,14 @@ end
 
     returns total number of segments on which the update type was accepted.
 """
-function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
+function forwardguide!(gt::GuidType, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0; skip=sk, verbose=false)
+    acc = 0
     xend = x0  
     for i ∈ eachindex(ℐs)
-        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
-        @set! ℐsᵒ[i].ll = llᵒ
-   end
-    H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
-    logh0 = logh̃(x0, (H0,F0,C0))
-    loglik = sum(map(x -> x.ll, ℐsᵒ))
-    logh0, loglik
+        xend, a = forwardguide!(gt, ℐs[i], 𝒫s[i], xend; skip=skip, verbose=verbose);
+        acc += a
+    end
+    acc
 end
 
 
