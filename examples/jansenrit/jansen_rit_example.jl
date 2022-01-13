@@ -8,6 +8,7 @@ using ForwardDiff
 using DifferentialEquations
 using Setfield
 using Plots
+using RCall
 
 import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, Euler, solve, solve!
 import ForwardDiff: jacobian
@@ -85,25 +86,31 @@ deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
 # Forwards guiding pCN
 
 # settings sampler
-iterations = 30 # 5*10^4
+iterations = 300 # 5*10^4
 skip_it = 10  #1000
 subsamples = 0:skip_it:iterations
 
 XX = Any[]
 (0 in subsamples) &&    push!(XX, mergepaths(ℐs))
 
-ℙinit = ℙ # @set ℙ.A=100.0
+ℙinit = @set ℙ.C=100.0
 ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
 
 
+(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
 ℐs, ll = forwardguide(x0, 𝒫s, ρs);
 ℐsᵒ, llᵒ = forwardguide(x0, 𝒫s, ρs);#deepcopy(ℐs)
+𝒫sᵒ = deepcopy(𝒫s)
 verbose = false
 
 #@enter forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
-
+θs = [getpar(𝒫s[1].ℙ)]
+tp = [1.0]
+acc = 0
 for iter in 1:iterations
+  global acc
   logh0, llᵒ = forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
+  
   llᵒ = logh0 + llᵒ
   # println(llᵒ)
   # println(lastval(ℐsᵒ[3]))
@@ -117,136 +124,41 @@ for iter in 1:iterations
      #ℐs .= ℐsᵒ
      ℐs, ℐsᵒ = ℐsᵒ,  ℐs
      ll = llᵒ
-
-    #  for i in eachindex(ℐs)
-    #   ℐs[i] = ℐsᵒ[i]
-    #  end
-
-
-  #   println(ℐs == ℐsᵒ)
     !verbose && print("✓")    
+    acc += 1 
   end 
   println()
 
   (iter in subsamples) && push!(XX, mergepaths(ℐs))
+
+  for i in eachindex(ℐs)
+    U = rand()
+    u = ρ * (U<0.5) + (U>=0.5)
+    @set! ℐsᵒ[i].ρ = u
+  end
+
+
+
+ @enter  θ,ll, a = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), ll; tuningpars=tp )
+  push!(θs, θ)
 end
 
 
+println("acceptance percentage: ", 100*acc/iterations)
 
-
-
+print(θs)
 
 pℐ =  plot_all(ℐs)
 pXf = plot_all(Xf)
-plot(pℐ, pXf)
-savefig("guidedinitial_onepCNstep.png")
+l = @layout [a ;b]
+plot(pXf, pℐ,  layout=l)
+savefig("forward_and_guided.png")
 
 
 
-#---------------------- a program
+PLOT = true
 
-
-
-
-ℐs = forwardguide(x0, 𝒫s, ρs)
-plot_all(ℐs)
-savefig("guidedinitial.png")
-
-
-
-# forwardguide!(PCN(), ℐs, 𝒫s, x0);
-#  ℐ, 𝒫 =  ℐs[end], 𝒫s[end];
-#  va = checkcorrespondence(ℐ, 𝒫)
-
-#  forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0; skip=sk, verbose=true);
-#  ℐ, 𝒫 =  ℐs[end], 𝒫s[end]
-#  va = checkcorrespondence(ℐ, 𝒫)
-
-
-ℐs = forwardguide(x0, 𝒫s, ρs)
-
-@enter  forwardguide!(PCN(), ℐs, 𝒫s, x0,  verbose=false);
-
-@enter checkcorrespondence(ℐ, 𝒫)
-
-for i in eachindex(ℐs)
-  checkcorrespondence(ℐs[i], 𝒫s[i])
-end
-
-
-𝒫sᵒ = deepcopy(𝒫s)
-ℐsᵒ = deepcopy(ℐs) # need to create only once
-θθ =[getpar(𝒫s[1].ℙ)]
-
-# estimate (C)
-tp = [20.0] # 20.0*[0.1 0.0; 0.0 0.1]
-
-acc = 0
-for iter in 1:iterations
-    global acc, ℐs, 𝒫s, ℐsᵒ, 𝒫sᵒ
-    a = forwardguide!(PCN(), ℐs, 𝒫s, x0,  verbose=false);
-    #a = forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0,  verbose=true);
-    ℐ, 𝒫 = ℐs[end], 𝒫s[end]
-    checkcorrespondence(ℐ, 𝒫)
-
-    acc += a
-  #  (iter in subsamples) && push!(XX, mergepaths(ℐs))    #  or use copy(X)  ?
-    println(iter)
-
-
-    if iter>5
-  #   (θ, accθ) = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ); tuningpars = tp)
-    if iter==500
-        #tp = cov(hcat(ec(θθ,1), ec(θθ,2))) * (2.38)^2/6.0
-    end
-
-    #println(accθ)
-    #push!(θθ, θ)
-    end
-end
-
-
-
-
-#say("Joehoe, klaar met rekenen")
-
-plot_all(ℐs)
-savefig("guidedfinal.png")
-
-
-pth1 = plot(ec(θθ,1))
-# pth2 = plot(ec(θθ,2))
-# plot(pth1, pth2, layout= (@layout [a b]))
-savefig("thetas.png")
-
-println(θθ)
-
-
-
-
-
-
-
-
-
-
-# priorθ = Dict(:A => Uniform(0.0, 20.0), 
-# 			  :B => Uniform(0.0, 50.0), 
-# 			  :C => TruncatedNormal(100,50,0.0,Inf64), 
-# 			  :μy=> Normal(0.0, 10.0^6), 
-# 			  :σy => Uniform(10.0, 5000.0))
-
-
-
-
-
-
-
-
-
-
-
-if false 
+if PLOT
 
 #--------- plotting 
 extractcomp(v,i) = map(x->x[i], v)

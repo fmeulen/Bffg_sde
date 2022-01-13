@@ -285,39 +285,27 @@ end
 
     Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
 """
-function forwardguide!(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-        X, W, ll, Wbuf = ℐ.X, ℐ.W, ℐ.ll, ℐ.Wbuf
-        solve!(Euler(), X, x0, W, 𝒫)
-        ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
-end
 
 """
     forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
 
     Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
 """
-# function forwardguide!(::PCN, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-#     Xᵒ, Wᵒ, Wbufᵒ = ℐᵒ.X, ℐᵒ.W, ℐᵒ.Wbuf
-#     sample!(Wbufᵒ, wienertype(𝒫.ℙ))
-#     ρ = ℐᵒ.ρ
-#     Wᵒ.yy .= ρ * ℐ.W.yy + sqrt(1.0-ρ^2)*Wbufᵒ.yy
-#     solve!(Euler(), Xᵒ, x0, Wᵒ, 𝒫)
-#     llᵒ = llikelihood(Bridge.LeftRule(), Xᵒ, 𝒫, skip=sk)
-#     ℐᵒ = @set ℐᵒ.ll= llᵒ
+function forwardguide!(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
+    solve!(Euler(), ℐ.X, x0, ℐ.W, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), ℐ.X, 𝒫, skip=sk)
+    lastval(ℐ), llᵒ
+end
 
-#     lastval(ℐᵒ)
-# end
+
 
 
 function forwardguide!(::PCN, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-    
     sample!(ℐᵒ.Wbuf, wienertype(𝒫.ℙ))
     ρ = ℐᵒ.ρ
     ℐᵒ.W.yy .= ρ * ℐ.W.yy + sqrt(1.0-ρ^2)*ℐᵒ.Wbuf.yy
     solve!(Euler(), ℐᵒ.X, x0, ℐᵒ.W, 𝒫)
     llᵒ = llikelihood(Bridge.LeftRule(), ℐᵒ.X, 𝒫, skip=sk)
-    #@set! ℐᵒ.ll = llᵒ
-
     lastval(ℐᵒ), llᵒ
 end
 
@@ -329,10 +317,10 @@ end
 
     returns total number of segments on which the update type was accepted.
 """
-function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
+function forwardguide!(::PCN, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
     xend = x0  
     for i ∈ eachindex(ℐs)
-        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
+        xend, llᵒ = forwardguide!(PCN(), ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
         @set! ℐsᵒ[i].ll = llᵒ
    end
     H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
@@ -341,6 +329,18 @@ function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vect
     logh0, loglik
 end
 
+
+function forwardguide!(::InnovationsFixed, ℐsᵒ::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
+    xend = x0  
+    for i ∈ eachindex(ℐs)
+        xend, llᵒ = forwardguide!(InnovationsFixed(), ℐsᵒ[i],  𝒫s[i], xend)
+        @set! ℐsᵒ[i].ll = llᵒ
+   end
+    H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
+    logh0 = logh̃(x0, (H0,F0,C0))
+    loglik = sum(map(x -> x.ll, ℐsᵒ))
+    logh0, loglik
+end
 
 
 function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
@@ -383,59 +383,35 @@ parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 
 
 
-function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ); tuningpars)
+function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), ll0; tuningpars)
     θ = getpar(𝒫s[1].ℙ)
     θᵒ = parameterkernel(θ, tuningpars)  
     #θᵒ = θ
     println(θᵒ)
     for i ∈ eachindex(𝒫sᵒ)
-        𝒫s = @set 𝒫s[i].ℙ.C=θᵒ[1]
+        @set! 𝒫sᵒ[i].ℙ.C=θᵒ[1]
   
         # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ.b=θᵒ[2]
         # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ̃.a=θᵒ[1]
         # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ̃.b=θᵒ[2]
-        ℐsᵒ = @set ℐsᵒ[i].X = ℐs[i].X
-        ℐsᵒ = @set ℐsᵒ[i].W = ℐs[i].W
-        ℐsᵒ = @set ℐsᵒ[i].ll = ℐs[i].ll
+        
     end
-
-    #  for k in eachindex(ℐs)
-    #   println(    ℐsᵒ[k].W == ℐs[k].W)
-    #  end
-
-
-    #  for k in eachindex(ℐs)
-    #      println(    ℐsᵒ[k].X == ℐs[k].X)
-    #     end
-   
-    #     for k in eachindex(ℐs)
-    #         println(    ℐsᵒ[k].X.yy - ℐs[k].X.yy)
-    #        end
-      
-    println(𝒫s==𝒫sᵒ, " should be false")
+    logh0ᵒ, llᵒ = forwardguide!(InnovationsFixed(), ℐsᵒ, 𝒫sᵒ, x0);
+    ll0ᵒ =  logh0ᵒ + llᵒ
+  
 
     #(H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering!(𝒫sᵒ, obs, timegrids);
-    forwardguide!(InnovationsFixed(), ℐsᵒ, 𝒫sᵒ, x0; skip=sk, verbose=true);
-    println(ℐs==ℐsᵒ, " should be false")
-
-    # ℐ, 𝒫 =  ℐsᵒ[3], 𝒫sᵒ[3]
-    # va = checkcorrespondence(ℐ, 𝒫)
-  
-    # println(loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ))
     
-    # println(lastval(ℐsᵒ[end]))
-
-    # sum(map(x -> x.ll, ℐsᵒ))
-
+  
     #diff_ll = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
-    diff_ll = loglik(x0, (H0,F0,C0), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
+    diff_ll = ll0ᵒ - ll0
     println("par update..... diff_ll: ", diff_ll)
     if log(rand()) < diff_ll
-        @. 𝒫s = 𝒫sᵒ
-        @. ℐs = ℐsᵒ
-        return (θᵒ, true)
+        𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
+        ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+        return (θᵒ,ll0ᵒ, true)
     else
-        return (θ, false)
+        return (θ,ll0, false)
     end   
 end
 

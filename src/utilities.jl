@@ -125,13 +125,13 @@ function plot_all(ℐs::Vector{PathInnovation})
 end
 
 function plot_all(X::SamplePath)
-    p1 = plot(X.tt, getindex.(X.yy,1), label="1")
-    p2 = plot(X.tt, getindex.(X.yy,2), label="2")
-    p3 = plot(X.tt, getindex.(X.yy,3), label="3")
-    p4 = plot(X.tt, getindex.(X.yy,4), label="4")
-    p5 = plot(X.tt, getindex.(X.yy,5), label="5")
-    p6 = plot(X.tt, getindex.(X.yy,6), label="6")
-    p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="2-3")
+    p1 = plot(X.tt, getindex.(X.yy,1), label="")
+    p2 = plot(X.tt, getindex.(X.yy,2), label="")
+    p3 = plot(X.tt, getindex.(X.yy,3), label="")
+    p4 = plot(X.tt, getindex.(X.yy,4), label="")
+    p5 = plot(X.tt, getindex.(X.yy,5), label="")
+    p6 = plot(X.tt, getindex.(X.yy,6), label="")
+    p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="")
     l = @layout [a b c; d e f; g]
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end
