@@ -51,7 +51,7 @@ m,  = size(L)
 Σdiagel = 10e-5
 Σ = SMatrix{m,m}(Σdiagel*I)
 
-skipobs = 500#length(Xf.tt)-1 #200
+skipobs = 100#  length(Xf.tt)-1 #500
 obstimes =  Xf.tt[1:skipobs:end]
 obsvals = map(x -> L*x, Xf.yy[1:skipobs:end])
 plot_all(Xf)
@@ -64,14 +64,14 @@ obs = Observation[]
 for i ∈ eachindex(obsvals)
     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
 end
-timegrids = set_timegrids(obs, 0.0005)
-ρ = 0.8
+timegrids = set_timegrids(obs, 0.00005)
+ρ = 0.95
 ρs = fill(ρ, length(timegrids))
 #------- Backwards filtering
 (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
 
 # Forwards guiding initialisation
-ℐs = forwardguide(x0, 𝒫s, ρs);
+ℐs, ll = forwardguide(x0, 𝒫s, ρs);
 plot_all(ℐs)
 savefig("guidedinitial.png")
 
@@ -83,19 +83,9 @@ deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
 
     
 # Forwards guiding pCN
-ℐs, acc = forwardguide!(PCN(), ℐs, 𝒫s, x0);
-plot_all(ℐs)
-savefig("guidedinitial_onepCNstep.png")
-
-
-
-#---------------------- a program
-
-
-
 
 # settings sampler
-iterations = 130 # 5*10^4
+iterations = 30 # 5*10^4
 skip_it = 10  #1000
 subsamples = 0:skip_it:iterations
 
@@ -106,35 +96,82 @@ XX = Any[]
 ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
 
 
-(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
+ℐs, ll = forwardguide(x0, 𝒫s, ρs);
+ℐsᵒ, llᵒ = forwardguide(x0, 𝒫s, ρs);#deepcopy(ℐs)
+verbose = false
 
-ρs = fill(.5, length(timegrids))
+#@enter forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
+
+for iter in 1:iterations
+  logh0, llᵒ = forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
+  llᵒ = logh0 + llᵒ
+  # println(llᵒ)
+  # println(lastval(ℐsᵒ[3]))
+  # println(lastval(ℐs[3]))
+  
+  
+  dll = llᵒ - ll
+  !verbose && print("ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+
+  if log(rand()) < dll 
+     #ℐs .= ℐsᵒ
+     ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+     ll = llᵒ
+
+    #  for i in eachindex(ℐs)
+    #   ℐs[i] = ℐsᵒ[i]
+    #  end
+
+
+  #   println(ℐs == ℐsᵒ)
+    !verbose && print("✓")    
+  end 
+  println()
+
+  (iter in subsamples) && push!(XX, mergepaths(ℐs))
+end
+
+
+
+
+
+
+pℐ =  plot_all(ℐs)
+pXf = plot_all(Xf)
+plot(pℐ, pXf)
+savefig("guidedinitial_onepCNstep.png")
+
+
+
+#---------------------- a program
+
+
+
+
 ℐs = forwardguide(x0, 𝒫s, ρs)
 plot_all(ℐs)
 savefig("guidedinitial.png")
 
-# testing 
-# k=3
-#ℐs, a =
 
 
-forwardguide!(PCN(), ℐs, 𝒫s, x0);
- ℐ, 𝒫 =  ℐs[end], 𝒫s[end];
- va = checkcorrespondence(ℐ, 𝒫)
+# forwardguide!(PCN(), ℐs, 𝒫s, x0);
+#  ℐ, 𝒫 =  ℐs[end], 𝒫s[end];
+#  va = checkcorrespondence(ℐ, 𝒫)
 
- forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0; skip=sk, verbose=true);
- ℐ, 𝒫 =  ℐs[end], 𝒫s[end]
- va = checkcorrespondence(ℐ, 𝒫)
-
-
- 
-
-# ρ = .5
+#  forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0; skip=sk, verbose=true);
+#  ℐ, 𝒫 =  ℐs[end], 𝒫s[end]
+#  va = checkcorrespondence(ℐ, 𝒫)
 
 
-# ℐ, 𝒫 =  ℐs[1], 𝒫s[1]
-# ℐ, lastX, acc =    forwardguide(PCN(), ℐ, 𝒫,  x0, ρ);
-# va = checkcorrespondence(ℐ, 𝒫)
+ℐs = forwardguide(x0, 𝒫s, ρs)
+
+@enter  forwardguide!(PCN(), ℐs, 𝒫s, x0,  verbose=false);
+
+@enter checkcorrespondence(ℐ, 𝒫)
+
+for i in eachindex(ℐs)
+  checkcorrespondence(ℐs[i], 𝒫s[i])
+end
 
 
 𝒫sᵒ = deepcopy(𝒫s)
@@ -142,27 +179,29 @@ forwardguide!(PCN(), ℐs, 𝒫s, x0);
 θθ =[getpar(𝒫s[1].ℙ)]
 
 # estimate (C)
-tp = [2.0] # 20.0*[0.1 0.0; 0.0 0.1]
+tp = [20.0] # 20.0*[0.1 0.0; 0.0 0.1]
 
 acc = 0
 for iter in 1:iterations
     global acc, ℐs, 𝒫s, ℐsᵒ, 𝒫sᵒ
-    ℐs, a = forwardguide!(PCN(), ℐs, 𝒫s, x0,  verbose=true);
-    #ℐs, a = forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0,  verbose=true);
+    a = forwardguide!(PCN(), ℐs, 𝒫s, x0,  verbose=false);
+    #a = forwardguide!(InnovationsFixed(), ℐs, 𝒫s, x0,  verbose=true);
+    ℐ, 𝒫 = ℐs[end], 𝒫s[end]
+    checkcorrespondence(ℐ, 𝒫)
 
     acc += a
-    (iter in subsamples) && push!(XX, mergepaths(ℐs))    #  or use copy(X)  ?
+  #  (iter in subsamples) && push!(XX, mergepaths(ℐs))    #  or use copy(X)  ?
     println(iter)
 
 
-    if iter>190
-     (θ, accθ) = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ); tuningpars = tp)
+    if iter>5
+  #   (θ, accθ) = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ); tuningpars = tp)
     if iter==500
         #tp = cov(hcat(ec(θθ,1), ec(θθ,2))) * (2.38)^2/6.0
     end
 
     #println(accθ)
-    push!(θθ, θ)
+    #push!(θθ, θ)
     end
 end
 
