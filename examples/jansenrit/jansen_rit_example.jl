@@ -72,7 +72,7 @@ timegrids = set_timegrids(obs, 0.00005)
 (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
 
 # Forwards guiding initialisation
-ℐs, ll = forwardguide(x0, 𝒫s, ρs);
+ℐs = forwardguide(x0, 𝒫s, ρs);
 plot_all(ℐs)
 savefig("guidedinitial.png")
 
@@ -82,11 +82,14 @@ savefig("guidedinitial.png")
 deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
 #plot(obstimes[2:end], map(x-> x[1,1], deviations))
 
-tp = [1.0]
-θs =   parinf(obs, timegrids, x0, tp; iterations=1000)    
-#@enter  parinf(obs, timegrids, x0, tp)    
+ρ = 0.95
+tp = [3.0]
+ℙinit =  @set ℙ.C=80.0
+ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
 
- print(θs)
+XX, θs, ℐs =   parinf(obs, timegrids, x0, tp, ρ, ℙinit, ℙ̃init; 
+                skip_it = 100, iterations=3_000, verbose=true, parupdating=true);    
+
 
 pℐ =  plot_all(ℐs)
 pXf = plot_all(Xf)

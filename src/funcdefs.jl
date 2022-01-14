@@ -275,16 +275,11 @@ function forwardguide(x0, 𝒫s, ρs)
         push!(ℐs, PathInnovation(xend, 𝒫s[i], ρs[i]))
         xend = lastval(ℐs[i])
     end
-    H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
-    loglik = logh̃(x0, (H0,F0,C0)) + sum(map(x -> x.ll, ℐs))
-    ℐs, loglik
+    # H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
+    # loglik = logh̃(x0, (H0,F0,C0)) + sum(map(x -> x.ll, ℐs))
+    ℐs
 end
 
-"""
-    forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
-
-    Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
-"""
 
 """
     forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
@@ -297,9 +292,6 @@ function forwardguide!(::InnovationsFixed, ℐᵒ::PathInnovation,  ℐ::PathInn
     llᵒ = llikelihood(Bridge.LeftRule(), ℐᵒ.X, 𝒫, skip=sk)
     lastval(ℐᵒ), llᵒ
 end
-
-
-
 
 function forwardguide!(::PCN, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
     sample!(ℐᵒ.Wbuf, wienertype(𝒫.ℙ))
@@ -323,14 +315,10 @@ function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vect
     for i ∈ eachindex(ℐs)
         xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
         #@set! ℐsᵒ[i].ll = llᵒ
-        ui = 𝒫sᵒ[i]
+        ui = ℐsᵒ[i]
         @set! ui.ll = llᵒ
-        𝒫sᵒ[i] = ui
+        ℐsᵒ[i] = ui
    end
-    H0, F0, C0 = 𝒫sᵒ[1].H[1], 𝒫sᵒ[1].F[1], 𝒫sᵒ[1].C
-    logh0 = logh̃(x0, (H0,F0,C0))
-    loglik = sum(map(x -> x.ll, ℐsᵒ))
-    logh0, loglik
 end
 
 
@@ -386,8 +374,7 @@ function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuni
         𝒫sᵒ[i] = ui
     end
     #(H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering!(𝒫sᵒ, obs, timegrids);
-    logh0ᵒ, llᵒ = forwardguide!(InnovationsFixed(), ℐsᵒ, ℐs, 𝒫sᵒ, x0)
-    logh0ᵒ, llᵒ
+    forwardguide!(InnovationsFixed(), ℐsᵒ, ℐs, 𝒫sᵒ, x0)
 end
 
  
@@ -396,29 +383,29 @@ end
 
 
 
-function parinf(obs, timegrids, x0,  tuningpars  ; iterations = 300, skip_it = 10, verbose=false )
+function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parupdating=true, iterations = 300, skip_it = 10, verbose=false )
 #   iterations = 200
 #     skip_it=10
 #     tuningpars=[1.0]
-    
-    ℙinit = @set ℙ.C=100.0
-    ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
+    ρs = fill(ρ, length(timegrids))    
+
     (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
-    ℐs, ll = forwardguide(x0, 𝒫s, ρs);
-    ℐsᵒ, llᵒ = forwardguide(x0, 𝒫s, ρs);#deepcopy(ℐs)
+    ℐs = forwardguide(x0, 𝒫s, ρs);
+    ll = loglik(x0, (H0,F0,C0), ℐs)
+
+    # containers
+    ℐsᵒ = deepcopy(ℐs) 
     𝒫sᵒ = deepcopy(𝒫s)
   
     subsamples = 0:skip_it:iterations
     XX = Any[]
     (0 in subsamples) &&    push!(XX, mergepaths(ℐs))
-  
-    θs = [getpar(𝒫s[1].ℙ)]
+      θs = [getpar(𝒫s[1].ℙ)]
     
     acc = 0
-    for iter in 1:iterations
-      
-      logh0, llᵒ = forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
-      llᵒ = logh0 + llᵒ
+    for iter in 1:iterations  
+      forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0)
+      llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ)
       dll = llᵒ - ll
       !verbose && print("ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
   
@@ -429,24 +416,26 @@ function parinf(obs, timegrids, x0,  tuningpars  ; iterations = 300, skip_it = 1
         !verbose && print("✓")    
         acc += 1 
       end 
-      println()
-  
-      logh0ᵒ,  llᵒ = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
-      #@enter parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
-      llᵒ =  logh0ᵒ + llᵒ
-      
-      diff_ll = llᵒ - ll
-      println("par update..... diff_ll: ", diff_ll)
-      if log(rand()) < diff_ll
-          𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
-          ℐs, ℐsᵒ = ℐsᵒ,  ℐs
-          ll = llᵒ
-          print("✓")  
-      end   
+    #  println()
 
-      push!(θs, copy(getpar(𝒫s[1].ℙ)))
-      println()
-      
+      if parupdating
+        parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
+        llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ) # if guiding term need not be recomputed
+                
+        diff_ll = llᵒ - ll
+        !verbose && println("par update..... diff_ll: ", diff_ll)
+        if log(rand()) < diff_ll
+            𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
+            ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+            ll = llᵒ
+            !verbose && print("✓")  
+            acc += 1 
+        end   
+
+        push!(θs, copy(getpar(𝒫s[1].ℙ)))
+    end
+ 
+      (iter in subsamples) && println(iter)
       (iter in subsamples) && push!(XX, mergepaths(ℐs))
   
       for i in eachindex(ℐsᵒ)
@@ -461,7 +450,7 @@ function parinf(obs, timegrids, x0,  tuningpars  ; iterations = 300, skip_it = 1
 
     end
     println("acceptance percentage: ", 100*acc/iterations)
-   θs
+   XX, θs, ℐs
   end
   
 
