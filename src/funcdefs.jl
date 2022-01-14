@@ -291,10 +291,11 @@ end
 
     Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
 """
-function forwardguide!(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
-    solve!(Euler(), ℐ.X, x0, ℐ.W, 𝒫)
-    llᵒ = llikelihood(Bridge.LeftRule(), ℐ.X, 𝒫, skip=sk)
-    lastval(ℐ), llᵒ
+function forwardguide!(::InnovationsFixed, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
+    ℐᵒ.W.yy .= ℐ.W.yy
+    solve!(Euler(), ℐᵒ.X, x0, ℐ.W, 𝒫)
+    llᵒ = llikelihood(Bridge.LeftRule(), ℐᵒ.X, 𝒫, skip=sk)
+    lastval(ℐᵒ), llᵒ
 end
 
 
@@ -317,30 +318,22 @@ end
 
     returns total number of segments on which the update type was accepted.
 """
-function forwardguide!(::PCN, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
+function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
     xend = x0  
     for i ∈ eachindex(ℐs)
-        xend, llᵒ = forwardguide!(PCN(), ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
-        @set! ℐsᵒ[i].ll = llᵒ
+        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
+        #@set! ℐsᵒ[i].ll = llᵒ
+        ui = 𝒫sᵒ[i]
+        @set! ui.ll = llᵒ
+        𝒫sᵒ[i] = ui
    end
-    H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
+    H0, F0, C0 = 𝒫sᵒ[1].H[1], 𝒫sᵒ[1].F[1], 𝒫sᵒ[1].C
     logh0 = logh̃(x0, (H0,F0,C0))
     loglik = sum(map(x -> x.ll, ℐsᵒ))
     logh0, loglik
 end
 
 
-function forwardguide!(::InnovationsFixed, ℐsᵒ::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
-    xend = x0  
-    for i ∈ eachindex(ℐs)
-        xend, llᵒ = forwardguide!(InnovationsFixed(), ℐsᵒ[i],  𝒫s[i], xend)
-        @set! ℐsᵒ[i].ll = llᵒ
-   end
-    H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
-    logh0 = logh̃(x0, (H0,F0,C0))
-    loglik = sum(map(x -> x.ll, ℐsᵒ))
-    logh0, loglik
-end
 
 
 function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
@@ -383,37 +376,101 @@ parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 
 
 
-function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), ll0; tuningpars)
+function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
     θ = getpar(𝒫s[1].ℙ)
     θᵒ = parameterkernel(θ, tuningpars)  
-    #θᵒ = θ
-    println(θᵒ)
     for i ∈ eachindex(𝒫sᵒ)
-        @set! 𝒫sᵒ[i].ℙ.C=θᵒ[1]
-  
-        # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ.b=θᵒ[2]
-        # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ̃.a=θᵒ[1]
-        # 𝒫sᵒ = @set 𝒫sᵒ[i].ℙ̃.b=θᵒ[2]
-        
+#        @set! 𝒫sᵒ[i].ℙ.C = θᵒ[1]
+        ui = 𝒫sᵒ[i]
+        @set! ui.ℙ.C = θᵒ[1]
+        𝒫sᵒ[i] = ui
     end
-    logh0ᵒ, llᵒ = forwardguide!(InnovationsFixed(), ℐsᵒ, 𝒫sᵒ, x0);
-    ll0ᵒ =  logh0ᵒ + llᵒ
+    #(H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering!(𝒫sᵒ, obs, timegrids);
+    logh0ᵒ, llᵒ = forwardguide!(InnovationsFixed(), ℐsᵒ, ℐs, 𝒫sᵒ, x0)
+    logh0ᵒ, llᵒ
+end
+
+ 
+    
+
+
+
+
+function parinf(obs, timegrids, x0,  tuningpars  ; iterations = 300, skip_it = 10, verbose=false )
+#   iterations = 200
+#     skip_it=10
+#     tuningpars=[1.0]
+    
+    ℙinit = @set ℙ.C=100.0
+    ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
+    (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
+    ℐs, ll = forwardguide(x0, 𝒫s, ρs);
+    ℐsᵒ, llᵒ = forwardguide(x0, 𝒫s, ρs);#deepcopy(ℐs)
+    𝒫sᵒ = deepcopy(𝒫s)
+  
+    subsamples = 0:skip_it:iterations
+    XX = Any[]
+    (0 in subsamples) &&    push!(XX, mergepaths(ℐs))
+  
+    θs = [getpar(𝒫s[1].ℙ)]
+    
+    acc = 0
+    for iter in 1:iterations
+      
+      logh0, llᵒ = forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
+      llᵒ = logh0 + llᵒ
+      dll = llᵒ - ll
+      !verbose && print("ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+  
+      if log(rand()) < dll 
+        #ℐs .= ℐsᵒ
+        ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+        ll = llᵒ
+        !verbose && print("✓")    
+        acc += 1 
+      end 
+      println()
+  
+      logh0ᵒ,  llᵒ = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
+      #@enter parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
+      llᵒ =  logh0ᵒ + llᵒ
+      
+      diff_ll = llᵒ - ll
+      println("par update..... diff_ll: ", diff_ll)
+      if log(rand()) < diff_ll
+          𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
+          ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+          ll = llᵒ
+          print("✓")  
+      end   
+
+      push!(θs, copy(getpar(𝒫s[1].ℙ)))
+      println()
+      
+      (iter in subsamples) && push!(XX, mergepaths(ℐs))
+  
+      for i in eachindex(ℐsᵒ)
+        U = rand()
+        u = ρ * (U<0.5) + (U>=0.5)
+#        @set! ℐsᵒ[i].ρ = u
+        ui = ℐsᵒ[i]
+        @set! ui.ρ = u
+        ℐsᵒ[i] = ui
+     end
+
+
+    end
+    println("acceptance percentage: ", 100*acc/iterations)
+   θs
+  end
   
 
-    #(H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering!(𝒫sᵒ, obs, timegrids);
-    
-  
-    #diff_ll = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ)- loglik(x0, (H0,F0,C0), ℐs)
-    diff_ll = ll0ᵒ - ll0
-    println("par update..... diff_ll: ", diff_ll)
-    if log(rand()) < diff_ll
-        𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
-        ℐs, ℐsᵒ = ℐsᵒ,  ℐs
-        return (θᵒ,ll0ᵒ, true)
-    else
-        return (θ,ll0, false)
-    end   
-end
+
+
+
+
+
+
 
 
 
