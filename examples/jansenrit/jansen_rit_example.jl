@@ -82,71 +82,11 @@ savefig("guidedinitial.png")
 deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
 #plot(obstimes[2:end], map(x-> x[1,1], deviations))
 
-    
-# Forwards guiding pCN
-
-# settings sampler
-iterations = 300 # 5*10^4
-skip_it = 10  #1000
-subsamples = 0:skip_it:iterations
-
-XX = Any[]
-(0 in subsamples) &&    push!(XX, mergepaths(ℐs))
-
-ℙinit = @set ℙ.C=100.0
-ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
-
-
-(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
-ℐs, ll = forwardguide(x0, 𝒫s, ρs);
-ℐsᵒ, llᵒ = forwardguide(x0, 𝒫s, ρs);#deepcopy(ℐs)
-𝒫sᵒ = deepcopy(𝒫s)
-verbose = false
-
-#@enter forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
-θs = [getpar(𝒫s[1].ℙ)]
 tp = [1.0]
-acc = 0
-for iter in 1:iterations
-  global acc
-  logh0, llᵒ = forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0);
-  
-  llᵒ = logh0 + llᵒ
-  # println(llᵒ)
-  # println(lastval(ℐsᵒ[3]))
-  # println(lastval(ℐs[3]))
-  
-  
-  dll = llᵒ - ll
-  !verbose && print("ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+θs =   parinf(obs, timegrids, x0, tp; iterations=1000)    
+#@enter  parinf(obs, timegrids, x0, tp)    
 
-  if log(rand()) < dll 
-     #ℐs .= ℐsᵒ
-     ℐs, ℐsᵒ = ℐsᵒ,  ℐs
-     ll = llᵒ
-    !verbose && print("✓")    
-    acc += 1 
-  end 
-  println()
-
-  (iter in subsamples) && push!(XX, mergepaths(ℐs))
-
-  for i in eachindex(ℐs)
-    U = rand()
-    u = ρ * (U<0.5) + (U>=0.5)
-    @set! ℐsᵒ[i].ρ = u
-  end
-
-
-
- @enter  θ,ll, a = parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), ll; tuningpars=tp )
-  push!(θs, θ)
-end
-
-
-println("acceptance percentage: ", 100*acc/iterations)
-
-print(θs)
+ print(θs)
 
 pℐ =  plot_all(ℐs)
 pXf = plot_all(Xf)
@@ -154,7 +94,8 @@ l = @layout [a ;b]
 plot(pXf, pℐ,  layout=l)
 savefig("forward_and_guided.png")
 
-
+plot(map(x->x[1], θs))
+savefig("thetas.png")
 
 PLOT = true
 

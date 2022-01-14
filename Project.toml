@@ -1,5 +1,6 @@
 [deps]
 Alert = "28312eec-4d86-447d-83ad-bc2b262de792"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Bridge = "2d3116d5-4b8f-5680-861c-71f149790274"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"

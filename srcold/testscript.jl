@@ -1,11 +1,83 @@
+using BenchMarkTools
+
 struct MyS 
     a
     b
 end
 
-P = [MyS(1,[2,3]), MyS(2.0, 50.0), MyS(-10,10)]
 
- Q = [MyS(1000,1), MyS("lala",0), MyS(1,0.0)]
+
+
+function testje(Ps::Vector{MyS})
+    for i in eachindex(Ps)
+        @set! Ps[i].a =0
+    end
+    println(Ps)
+end
+
+function testje2(Ps::Vector{MyS})
+    for i in eachindex(Ps)
+        ui = @set Ps[i].a =0
+        Ps[i] = ui[i]
+    end
+  #  println(Ps)
+end
+
+
+# this is the right one
+function testje2b(Ps::Vector{MyS})
+    for i in eachindex(Ps)
+        ui = Ps[i]
+        @set! ui.a = 0
+        Ps[i] = ui
+    end
+    #println(Ps)
+end
+
+
+
+function testje4(Ps::Vector{MyS})
+    for i in eachindex(Ps)
+        Ps[i] = @set Ps[i].a =0
+    end
+    #println(Ps)
+end
+
+
+Ps = [MyS(1,[2,3]), MyS(2.0, 50.0), MyS(-10,10)]
+testje(Ps)
+Ps
+
+
+Ps = [MyS(1,[2,3]), MyS(2.0, 50.0), MyS(-10,10)]
+@btime testje2(Ps)
+Ps
+
+Ps = [MyS(1,[2,3]), MyS(2.0, 50.0), MyS(-10,10)]
+@btime testje2b(Ps)  # best
+Ps
+
+
+
+
+
+struct MySvector
+    v::Vector{MyS}
+end
+
+
+function testje3(Qs::MySvector)
+    for i in eachindex(Qs.v)
+         Qs.v[i].a =0
+    end
+    println(Ps)
+end
+
+Qs = MySvector([MyS(1,[2,3]), MyS(2.0, 50.0), MyS(-10,10)])
+testje3(Qs)
+
+
+
 
 
 P1 = P[1]
