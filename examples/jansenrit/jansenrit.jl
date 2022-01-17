@@ -14,8 +14,29 @@ struct JansenRitDiffusion{T} <: ContinuousTimeProcess{ℝ{6}}
     σy::T
 end
 
-sigm(x, ℙ::JansenRitDiffusion) = ℙ.νmax / (1.0 + exp(ℙ.r*(ℙ.v - x)))
-μy(t, ℙ::JansenRitDiffusion) =  ℙ.a * ℙ.A * ℙ.μy #constant
+#  auxiliary process
+struct JansenRitDiffusionAux{T,Tobs} <: ContinuousTimeProcess{ℝ{6}}
+    A::T
+    a::T
+    B::T 
+    b::T 
+    C::T
+    α1::T 
+    α2::T
+    νmax::T
+    v::T
+    r::T
+    μy::T
+    σy::T
+    T::Float64  # observation time
+    vT::Tobs # observation value
+end
+
+JansenRitDiffusionAux(T, vT, ℙ::JansenRitDiffusion) = JansenRitDiffusionAux(ℙ.A, ℙ.a, ℙ.B, ℙ.b, ℙ.C, ℙ.α1, ℙ.α2, ℙ.νmax, ℙ.v, ℙ.r, ℙ.μy, ℙ.σy, T, vT)
+
+
+sigm(x, ℙ::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = ℙ.νmax / (1.0 + exp(ℙ.r*(ℙ.v - x)))
+μy(t, ℙ::Union{JansenRitDiffusion, JansenRitDiffusionAux}) =  ℙ.a * ℙ.A * ℙ.μy #constant
 C1(ℙ::JansenRitDiffusion) = ℙ.C
 C2(ℙ::JansenRitDiffusion) = ℙ.α1*ℙ.C
 C3(ℙ::JansenRitDiffusion) = ℙ.α2*ℙ.C
@@ -34,20 +55,11 @@ end
 
 Bridge.σ(t, x, ℙ::JansenRitDiffusion) =ℝ{6}(0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0)
     
-wienertype(ℙ::JansenRitDiffusion) = Wiener()
+wienertype(::JansenRitDiffusion) = Wiener()
 
 Bridge.constdiff(::JansenRitDiffusion) = true
 dim(::JansenRitDiffusion) = 6
 
-#  auxiliary process
-struct JansenRitDiffusionAux <: ContinuousTimeProcess{ℝ{6}}
-    a::Float64 
-    b::Float64
-    A::Float64
-    μy::Float64
-    σy::Float64
-    T::Float64
-end
 
 # I would think this works nice, but this matrix is very ill-conditioned
 function Bridge.B(t, ℙ::JansenRitDiffusionAux)      
@@ -69,7 +81,13 @@ end
 #                 0.0 0.0 0.0 0.0 0.0 0.0]
 # end
 
-Bridge.β(t, ℙ::JansenRitDiffusionAux) = @SVector [0.0, 0.0, 0.0, 0.0, ℙ.a * ℙ.A * ℙ.μy , 0.0]
+Bridge.β(t, ℙ::JansenRitDiffusionAux) = @SVector [0.0, 0.0, 0.0, ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), μy(t,ℙ), 0.0]
+
+# Bridge.β(t, P::JansenRitDiffusionAux) = @SVector [0.0, 0.0, 0.0, P.A*P.a*0.5*P.νmax, 
+#             P.μy +  P.A*P.a*P.α1*P.C*0.5 , P.B*P.b*P.α2*P.C*0.5*P.νmax]
+
+
+
 Bridge.σ(t,  ℙ::JansenRitDiffusionAux) = ℝ{6}(0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0)
 
 Bridge.σ(t, x,  ℙ::JansenRitDiffusionAux) = Bridge.σ(t,  ℙ)

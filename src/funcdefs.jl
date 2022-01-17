@@ -311,9 +311,10 @@ end
     returns total number of segments on which the update type was accepted.
 """
 function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
-    xend = x0  
+    x_ = x0  
     for i ∈ eachindex(ℐs)
-        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], xend)
+        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], x_)
+        x_ = xend
         #@set! ℐsᵒ[i].ll = llᵒ
         ui = ℐsᵒ[i]
         @set! ui.ll = llᵒ
@@ -324,15 +325,16 @@ end
 
 
 
-function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
+function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
     Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
     n = length(obs)
 
-    HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
+    #HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
+    (HT, FT, CT) = HFC(obs[n])
     𝒫s = GuidedProcess[]
 
     for i in n-1:-1:1
-        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃, timegrids[i], HT, FT, CT)
+        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], HT, FT, CT)
         pushfirst!(𝒫s, 𝒫)
         message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
         (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
@@ -341,7 +343,7 @@ function backwardfiltering(obs, timegrids, ℙ, ℙ̃ ;ϵ = 10e-2, M=50)
 end
 
 
-function backwardfiltering!(𝒫s, obs, timegrids; ϵ = 10e-2)
+function backwardfiltering!(𝒫s, obs, timegrids; ϵ = 10e-2) #FIXME
     Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(𝒫s[1].ℙ); ϵ=ϵ)
     n = length(obs)
 
@@ -389,7 +391,7 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
 #     tuningpars=[1.0]
     ρs = fill(ρ, length(timegrids))    
 
-    (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init);
+    (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init; ϵ = 10e-5);
     ℐs = forwardguide(x0, 𝒫s, ρs);
     ll = loglik(x0, (H0,F0,C0), ℐs)
 
@@ -398,11 +400,12 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
     𝒫sᵒ = deepcopy(𝒫s)
   
     subsamples = 0:skip_it:iterations
-    XX = Any[]
+    TX = typeof(ℐs[1].X)
+    XX = TX[]
     (0 in subsamples) &&    push!(XX, mergepaths(ℐs))
-      θs = [getpar(𝒫s[1].ℙ)]
+    θs = [getpar(𝒫s[1].ℙ)]
     
-    acc = 0
+    accinnov = 0; accpar = 0 
     for iter in 1:iterations  
       forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0)
       llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ)
@@ -414,7 +417,7 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
         ℐs, ℐsᵒ = ℐsᵒ,  ℐs
         ll = llᵒ
         !verbose && print("✓")    
-        acc += 1 
+        accinnov += 1 
       end 
     #  println()
 
@@ -422,14 +425,15 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
         parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
         llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ) # if guiding term need not be recomputed
                 
-        diff_ll = llᵒ - ll
+        diff_ll = llᵒ - ll 
         !verbose && println("par update..... diff_ll: ", diff_ll)
-        if log(rand()) < diff_ll
+        #println(getpar(𝒫sᵒ[1].ℙ)[1]>0)
+        if  (log(rand()) < diff_ll) && (getpar(𝒫sᵒ[1].ℙ)[1]>60.0)  
             𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
             ℐs, ℐsᵒ = ℐsᵒ,  ℐs
             ll = llᵒ
             !verbose && print("✓")  
-            acc += 1 
+            accpar += 1 
         end   
 
         push!(θs, copy(getpar(𝒫s[1].ℙ)))
@@ -440,7 +444,7 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
   
       for i in eachindex(ℐsᵒ)
         U = rand()
-        u = ρ * (U<0.5) + (U>=0.5)
+        u = ρ * (U<0.25) + (U>=0.25)
 #        @set! ℐsᵒ[i].ρ = u
         ui = ℐsᵒ[i]
         @set! ui.ρ = u
@@ -449,8 +453,9 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
 
 
     end
-    println("acceptance percentage: ", 100*acc/iterations)
-   XX, θs, ℐs
+    println("acceptance percentage parameter: ", 100*accpar/iterations)
+    println("acceptance percentage innovations: ", 100*accinnov/iterations)
+    XX, θs, ℐs, (accpar=accpar, accinnov=accinnov)
   end
   
 

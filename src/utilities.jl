@@ -102,7 +102,7 @@ function plot_(ℐs::Vector{PathInnovation},comp::Int)
     p
 end
 
-function plot_(ℐs::Vector{PathInnovation},comp::String)
+function plot_(ℐs::Vector{PathInnovation},::String)
     p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,2) - ec(ℐs[1].X.yy,3) , label="")
     for k in 2:length(ℐs)
       plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,2) - ec(ℐs[k].X.yy,3), label="")

@@ -25,20 +25,21 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 
 ################################  TESTING  ################################################
 
-sk = 0 # skipped in evaluating loglikelihood
-ρ = 0.9
+sk = 1 # skipped in evaluating loglikelihood
+
 
 Random.seed!(5)
 
 θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
-#θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 0.0, 2000.0]
+#θtrue =[3.25, 0.0, 22.0, 0.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]
 ℙ = JansenRitDiffusion(θtrue...)
 T = 1.0
-ℙ̃ = JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, T)
+
 
 
 #---- generate test data
-x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
+#x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
+x0 = @SVector zeros(6)
 W = sample((-1.0):0.0001:T, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
 Xf_prelim = solve(Euler(), x0, W, ℙ)
 # drop initial nonstationary behaviour
@@ -49,7 +50,7 @@ x0 = Xf.yy[1]
 #------  set observations
 L = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
 m,  = size(L)
-Σdiagel = 10e-5
+Σdiagel = 1e-7
 Σ = SMatrix{m,m}(Σdiagel*I)
 
 skipobs = 100#  length(Xf.tt)-1 #500
@@ -65,39 +66,64 @@ obs = Observation[]
 for i ∈ eachindex(obsvals)
     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ))
 end
+obs[1] = Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))
+
 timegrids = set_timegrids(obs, 0.00005)
 ρ = 0.95
 ρs = fill(ρ, length(timegrids))
 #------- Backwards filtering
-(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃);
+
+ℙ̃s = []
+for i in eachindex(timegrids) 
+  #push!(ℙ̃s, JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, ℙ.νmax , ℙ.v, ℙ.r, obs[i+1].t, obs[i+1].v[1]))
+  push!(ℙ̃s, JansenRitDiffusionAux(obs[i+1].t, obs[i+1].v[1], ℙ))
+end
+(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃s);
+
 
 # Forwards guiding initialisation
 ℐs = forwardguide(x0, 𝒫s, ρs);
 plot_all(ℐs)
 savefig("guidedinitial.png")
 
+pf = plot_all(Xf)
+pg = plot_all(ℐs)
+l = @layout  [a;b]
+plot(pf, pg, layout=l)
+savefig("forward_and_guidedinital.png")
+
+plot(map(x->x.ll, ℐs))
 
 # check whether interpolation goes fine
  
 deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
 #plot(obstimes[2:end], map(x-> x[1,1], deviations))
 
-ρ = 0.95
-tp = [3.0]
-ℙinit =  @set ℙ.C=80.0
-ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
+ρ = 0.98
+tp = [5.0]
+ℙinit = ℙ #  @set ℙ.C=280.0
+#ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
 
-XX, θs, ℐs =   parinf(obs, timegrids, x0, tp, ρ, ℙinit, ℙ̃init; 
-                skip_it = 100, iterations=3_000, verbose=true, parupdating=true);    
+ℙ̃s_init = JansenRitDiffusionAux[]
+for i in eachindex(timegrids) 
+    push!(ℙ̃s_init, JansenRitDiffusionAux(obs[i+1].t, obs[i+1].v[1], ℙinit))
+end
+
+
+XX, θs, ℐs, (accpar, accinnov) =   parinf(obs, timegrids, x0, tp, ρ, ℙinit, ℙ̃s_init; 
+                skip_it = 100, iterations=4_000, verbose=true, parupdating=true);    
 
 
 pℐ =  plot_all(ℐs)
+savefig("temp.png")
 pXf = plot_all(Xf)
+
+
 l = @layout [a ;b]
 plot(pXf, pℐ,  layout=l)
-savefig("forward_and_guided.png")
+savefig("forward_and_guided_lastiterate.png")
 
-plot(map(x->x[1], θs))
+pθ = plot(map(x->x[1], θs), label="θ")
 savefig("thetas.png")
 
 PLOT = true
