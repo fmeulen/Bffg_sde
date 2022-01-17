@@ -10,6 +10,15 @@ function mergepaths(ℐs)
     SamplePath(vcat(tt...),vcat(yy...))
 end
 
+function init_auxiliary_processes(TypeAuxProcess, obs, ℙ)
+    ℙ̃s = TypeAuxProcess[]
+    n = length(obs)
+    for i in 1:n
+      push!(ℙ̃s, TypeAuxProcess(obs[i].t, obs[i].v[1], ℙ))
+    end
+    ℙ̃s
+  end  
+  
 
 """
     kernelrk4(f, t, y, dt, ℙ)
@@ -132,6 +141,19 @@ function plot_all(X::SamplePath)
     p5 = plot(X.tt, getindex.(X.yy,5), label="")
     p6 = plot(X.tt, getindex.(X.yy,6), label="")
     p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="")
+    l = @layout [a b c; d e f; g]
+    plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
+end
+
+function plot_all(X::SamplePath, obstimes, obsvals)
+    p1 = plot(X.tt, getindex.(X.yy,1), label="")
+    p2 = plot(X.tt, getindex.(X.yy,2), label="")
+    p3 = plot(X.tt, getindex.(X.yy,3), label="")
+    p4 = plot(X.tt, getindex.(X.yy,4), label="")
+    p5 = plot(X.tt, getindex.(X.yy,5), label="")
+    p6 = plot(X.tt, getindex.(X.yy,6), label="")
+    p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="")
+    plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=2, label="")
     l = @layout [a b c; d e f; g]
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end

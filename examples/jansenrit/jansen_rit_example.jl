@@ -18,29 +18,37 @@ wdir = @__DIR__
 cd(wdir)
 outdir= joinpath(wdir, "out")
 include("jansenrit.jl")
-
+include("jansenrit3.jl")
 
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 
 ################################  TESTING  ################################################
 
-sk = 1 # skipped in evaluating loglikelihood
+sk = 0 # skipped in evaluating loglikelihood
 
 
 Random.seed!(5)
 
-θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
-#θtrue =[3.25, 0.0, 22.0, 0.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]
-ℙ = JansenRitDiffusion(θtrue...)
-T = 1.0
+model= [:jr, :jr3][2]
 
+if model == :jr
+  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  ℙ = JansenRitDiffusion(θtrue...)
+  AuxType = JansenRitDiffusionAux
+end
+if model == :jr3
+  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.1, 2000.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  ℙ = JansenRitDiffusion3(θtrue...)
+  AuxType = JansenRitDiffusionAux3
+end
 
 
 #---- generate test data
+T = 1.0
 #x0 = @SVector [0.08, 18.0, 15.0, -0.5, 0.0, 0.0] 
 x0 = @SVector zeros(6)
-W = sample((-1.0):0.0001:T, Wiener())                        #  sample(tt, Wiener{ℝ{1}}())
+W = sample((-1.0):0.0001:T, wienertype(ℙ))                        #  sample(tt, Wiener{ℝ{1}}())
 Xf_prelim = solve(Euler(), x0, W, ℙ)
 # drop initial nonstationary behaviour
 Xf = SamplePath(Xf_prelim.tt[10001:end], Xf_prelim.yy[10001:end])
@@ -56,7 +64,7 @@ m,  = size(L)
 skipobs = 100#  length(Xf.tt)-1 #500
 obstimes =  Xf.tt[1:skipobs:end]
 obsvals = map(x -> L*x, Xf.yy[1:skipobs:end])
-plot_all(Xf)
+pF = plot_all(Xf, obstimes, obsvals)
 savefig("forwardsimulated.png")
 
 
@@ -73,11 +81,7 @@ timegrids = set_timegrids(obs, 0.00005)
 ρs = fill(ρ, length(timegrids))
 #------- Backwards filtering
 
-ℙ̃s = []
-for i in eachindex(timegrids) 
-  #push!(ℙ̃s, JansenRitDiffusionAux(ℙ.a, ℙ.b , ℙ.A , ℙ.μy, ℙ.σy, ℙ.νmax , ℙ.v, ℙ.r, obs[i+1].t, obs[i+1].v[1]))
-  push!(ℙ̃s, JansenRitDiffusionAux(obs[i+1].t, obs[i+1].v[1], ℙ))
-end
+ℙ̃s = init_auxiliary_processes(AuxType, obs, ℙ)
 (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃s);
 
 
@@ -104,10 +108,9 @@ tp = [5.0]
 ℙinit = ℙ #  @set ℙ.C=280.0
 #ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
 
-ℙ̃s_init = JansenRitDiffusionAux[]
-for i in eachindex(timegrids) 
-    push!(ℙ̃s_init, JansenRitDiffusionAux(obs[i+1].t, obs[i+1].v[1], ℙinit))
-end
+
+ℙ̃s_init = init_auxiliary_processes(AuxType, obs, ℙinit)
+
 
 
 XX, θs, ℐs, (accpar, accinnov) =   parinf(obs, timegrids, x0, tp, ρ, ℙinit, ℙ̃s_init; 
@@ -115,16 +118,18 @@ XX, θs, ℐs, (accpar, accinnov) =   parinf(obs, timegrids, x0, tp, ρ, ℙinit
 
 
 pℐ =  plot_all(ℐs)
-savefig("temp.png")
-pXf = plot_all(Xf)
-
 
 l = @layout [a ;b]
-plot(pXf, pℐ,  layout=l)
+plot(pF, pℐ,  layout=l)
 savefig("forward_and_guided_lastiterate.png")
 
 pθ = plot(map(x->x[1], θs), label="θ")
 savefig("thetas.png")
+
+p23 = plot_(ℐs,"23")
+plot!(p23, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3), label="")
+savefig("second_minus_third.png")
+
 
 PLOT = true
 

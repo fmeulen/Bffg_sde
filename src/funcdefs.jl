@@ -359,7 +359,8 @@ end
 
 
 
-getpar(ℙ::JansenRitDiffusion) = [ℙ.C] # [ℙ.A, ℙ.B]
+getpar(ℙ) = [ℙ.C] # [ℙ.A, ℙ.B]
+getpar(𝒫::GuidedProcess) = getpar(𝒫.ℙ)
 
 #parameterkernel(θ, tuningpars) = θ + rand(MvNormal(length(θ), tuningpars))
 parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
@@ -367,7 +368,7 @@ parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 
 
 function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
-    θ = getpar(𝒫s[1].ℙ)
+    θ = getpar(𝒫s[1])
     θᵒ = parameterkernel(θ, tuningpars)  
     for i ∈ eachindex(𝒫sᵒ)
 #        @set! 𝒫sᵒ[i].ℙ.C = θᵒ[1]
@@ -428,7 +429,7 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
         diff_ll = llᵒ - ll 
         !verbose && println("par update..... diff_ll: ", diff_ll)
         #println(getpar(𝒫sᵒ[1].ℙ)[1]>0)
-        if  (log(rand()) < diff_ll) && (getpar(𝒫sᵒ[1].ℙ)[1]>60.0)  
+        if  (log(rand()) < diff_ll) #&& (getpar(𝒫sᵒ[1].ℙ)[1]>60.0)  
             𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
             ℐs, ℐsᵒ = ℐsᵒ,  ℐs
             ll = llᵒ
@@ -436,7 +437,7 @@ function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parup
             accpar += 1 
         end   
 
-        push!(θs, copy(getpar(𝒫s[1].ℙ)))
+        push!(θs, copy( getpar(𝒫s[1]) )) 
     end
  
       (iter in subsamples) && println(iter)
