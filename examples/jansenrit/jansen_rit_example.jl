@@ -13,6 +13,7 @@ using RCall
 import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, Euler, solve, solve!
 import ForwardDiff: jacobian
 
+using ProfileView
 
 wdir = @__DIR__
 cd(wdir)
@@ -30,15 +31,16 @@ sk = 0 # skipped in evaluating loglikelihood
 
 Random.seed!(5)
 
-model= [:jr, :jr3][2]
+model= [:jr, :jr3][1]
 
 if model == :jr
-  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  #  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  θtrue =[3.25, 100.0, 22.0, 50.0, 235.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 9000.0]
   ℙ = JansenRitDiffusion(θtrue...)
   AuxType = JansenRitDiffusionAux
 end
 if model == :jr3
-  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.1, 2000.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.01, 2000.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
   ℙ = JansenRitDiffusion3(θtrue...)
   AuxType = JansenRitDiffusionAux3
 end
@@ -58,14 +60,14 @@ x0 = Xf.yy[1]
 #------  set observations
 L = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
 m,  = size(L)
-Σdiagel = 1e-7
+Σdiagel = 1e-6
 Σ = SMatrix{m,m}(Σdiagel*I)
 
-skipobs = 100#  length(Xf.tt)-1 #500
+skipobs = 200  #length(Xf.tt)-1 #500
 obstimes =  Xf.tt[1:skipobs:end]
 obsvals = map(x -> L*x, Xf.yy[1:skipobs:end])
 pF = plot_all(Xf, obstimes, obsvals)
-savefig("forwardsimulated.png")
+savefig(joinpath(outdir, "forwardsimulated.png"))
 
 
 
@@ -83,55 +85,68 @@ timegrids = set_timegrids(obs, 0.00005)
 
 ℙ̃s = init_auxiliary_processes(AuxType, obs, ℙ)
 (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃s);
-
+#@time backwardfiltering(obs, timegrids, ℙ, ℙ̃s);
 
 # Forwards guiding initialisation
-ℐs = forwardguide(x0, 𝒫s, ρs);
+@time  ℐs = forwardguide(x0, 𝒫s, ρs);
 plot_all(ℐs)
-savefig("guidedinitial.png")
+savefig(joinpath(outdir,"guidedinitial.png"))
 
 pf = plot_all(Xf)
 pg = plot_all(ℐs)
 l = @layout  [a;b]
 plot(pf, pg, layout=l)
-savefig("forward_and_guidedinital.png")
+savefig(joinpath(outdir,"forward_and_guidedinital.png"))
 
-plot(map(x->x.ll, ℐs))
+plot(obstimes[2:end], map(x->x.ll, ℐs), seriestype=:scatter, label="loglik")
+savefig(joinpath(outdir, "loglik_segments.png"))
 
 # check whether interpolation goes fine
  
 deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
-#plot(obstimes[2:end], map(x-> x[1,1], deviations))
-
-ρ = 0.98
-tp = [5.0]
-ℙinit = ℙ #  @set ℙ.C=280.0
-#ℙ̃init = ℙ̃ # @set ℙ̃.A=50.0
+plot(obstimes[2:end], map(x-> x[1,1], deviations))
 
 
+# proposals
+ρ = 0.99
+parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
+tuningpars = [15.0, 10.0, 10.0]
+
+pars = ParInfo([:C, :μy, :σy], [false, true, true])
+
+# initialisation
+ℙinit = setproperties(ℙ, C=160.0, μy=100.0, σy = 6000.0) 
 ℙ̃s_init = init_auxiliary_processes(AuxType, obs, ℙinit)
 
+#Profile.init() 
+#ProfileView.@profview 
 
-
-XX, θs, ℐs, (accpar, accinnov) =   parinf(obs, timegrids, x0, tp, ρ, ℙinit, ℙ̃s_init; 
-                skip_it = 100, iterations=4_000, verbose=true, parupdating=true);    
+XX, θs, ℐs, (accpar, accinnov) =   parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit, ℙ̃s_init; 
+                skip_it = 100, iterations=500, verbose=true, parupdating=true);    
 
 
 pℐ =  plot_all(ℐs)
 
 l = @layout [a ;b]
 plot(pF, pℐ,  layout=l)
-savefig("forward_and_guided_lastiterate.png")
+savefig(joinpath(outdir, "forward_and_guided_lastiterate.png"))
 
-pθ = plot(map(x->x[1], θs), label="θ")
-savefig("thetas.png")
+pC = plot(map(x->x[1], θs), label="C")
+Plots.abline!(pC,  0.0, ℙ.C )
+pμy = plot(map(x->x[2], θs), label="μy")
+Plots.abline!(pμy,  0.0, ℙ.μy )
+pσy = plot(map(x->x[3], θs), label="σy")
+Plots.abline!(pσy,  0.0, ℙ.σy )
+l = @layout [a b c]
+plot(pC, pμy, pσy, layout=l)
+savefig(joinpath(outdir,"thetas.png"))
 
 p23 = plot_(ℐs,"23")
 plot!(p23, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3), label="")
-savefig("second_minus_third.png")
+savefig(joinpath(outdir,"second_minus_third.png"))
 
 
-PLOT = true
+PLOT = false 
 
 if PLOT
 

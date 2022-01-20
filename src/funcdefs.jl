@@ -61,7 +61,8 @@ struct PathInnovation{TX, TW, Tll}
         X = solve(Euler(), x0, W, 𝒫)  # allocation        
         ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
         Wbuf = deepcopy(W)
-        PathInnovation(X, W, ll, Wbuf, ρ)
+        #PathInnovation(X, W, ll, Wbuf, ρ)
+        new{typeof(X), typeof(W), typeof(ll)}(X, W, ll, Wbuf, ρ)
     end
 end
 
@@ -105,7 +106,8 @@ struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
         _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
-        GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
+        #GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
+        new{eltype(Ft), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
 end
 
@@ -174,6 +176,7 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
         (u,t,integrator) -> static_accessor_HFc(u, access),
         saved_values;
         saveat=reverse(tt), 
+    #    saveat=tt, 
         tdir=-1
     )
     integrator = init(
@@ -184,15 +187,18 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
     )
     sol = DifferentialEquations.solve!(integrator)   # s
     
-    savedt = saved_values.t
+    #  savedt = saved_values.t
     ss = saved_values.saveval
-    reverse!(ss)
-    for i ∈ eachindex(savedt)
-        Ht[i] = getindex.(ss,1)[i]
-        Ft[i] = getindex.(ss,2)[i]
-    end
-    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
 
+    reverse!(ss)
+    Ht .= getindex.(ss,1)
+    Ft .= getindex.(ss,2)
+    # for i ∈ eachindex(savedt)
+    #     Ht[i] = getindex.(ss,1)[i]  # trouble with profileview
+    #     Ft[i] = getindex.(ss,2)[i]
+    # end
+    #    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
+    C = getindex(ss[end],3)
     Ht, Ft, C
 end
 
@@ -312,10 +318,11 @@ end
 """
 function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
     x_ = x0  
+    xend = 0.0*x0 ; 
+    llᴼ = 0.0 
     for i ∈ eachindex(ℐs)
-        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], x_)
+        xend, llᵒ = forwardguide!(gt, ℐsᵒ[i], ℐs[i], 𝒫s[i], x_) # profileview colours red on this line, especially when PCN is called
         x_ = xend
-        #@set! ℐsᵒ[i].ll = llᵒ
         ui = ℐsᵒ[i]
         @set! ui.ll = llᵒ
         ℐsᵒ[i] = ui
@@ -325,59 +332,56 @@ end
 
 
 
-function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
-    Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
-    n = length(obs)
 
+
+
+
+
+
+
+function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
+    #Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
+    n = length(obs)
     #HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
     (HT, FT, CT) = HFC(obs[n])
     𝒫s = GuidedProcess[]
 
     for i in n-1:-1:1
-        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], HT, FT, CT)
+        𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], HT, FT, CT) # profileview colours red here
         pushfirst!(𝒫s, 𝒫)
-        message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
-        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
+        # message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
+        # (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
+        (HT, FT, CT) = fusion_HFC(HFC0(𝒫), HFC(obs[i]))
     end
     (HT, FT, CT), 𝒫s
 end
 
+HFC0(𝒫::GuidedProcess) = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
 
 function backwardfiltering!(𝒫s, obs, timegrids; ϵ = 10e-2) #FIXME
-    Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(𝒫s[1].ℙ); ϵ=ϵ)
+    #Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(𝒫s[1].ℙ); ϵ=ϵ)
     n = length(obs)
+    #HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
+    (HT, FT, CT) = HFC(obs[n])
 
-    HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
-    
     for i in n-1:-1:1
         𝒫s[i] = GuidedProcess(DE(Vern7()), 𝒫s[i].ℙ, 𝒫s[i].ℙ̃, timegrids[i], HT, FT, CT)
-        message = (𝒫s[i].H[1], 𝒫s[i].F[1], 𝒫s[i].C[1])
-        (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
+        # message = (𝒫s[i].H[1], 𝒫s[i].F[1], 𝒫s[i].C[1])
+        # (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
+        (HT, FT, CT) = fusion_HFC(HFC0(𝒫s[i]), HFC(obs[i]))
     end
-    (HT, FT, CT), 𝒫s
+    #(HT, FT, CT), 𝒫s
+    (HT, FT, CT)
 end
 
 
 
-getpar(ℙ) = [ℙ.C] # [ℙ.A, ℙ.B]
-getpar(𝒫::GuidedProcess) = getpar(𝒫.ℙ)
 
-#parameterkernel(θ, tuningpars) = θ + rand(MvNormal(length(θ), tuningpars))
-parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
-
-
-
-function parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
-    θ = getpar(𝒫s[1])
+function parupdate!(𝒫sᵒ, θ, pars::ParInfo,  tuningpars)
     θᵒ = parameterkernel(θ, tuningpars)  
-    for i ∈ eachindex(𝒫sᵒ)
-#        @set! 𝒫sᵒ[i].ℙ.C = θᵒ[1]
-        ui = 𝒫sᵒ[i]
-        @set! ui.ℙ.C = θᵒ[1]
-        𝒫sᵒ[i] = ui
-    end
-    #(H0ᵒ, F0ᵒ, C0ᵒ), 𝒫sᵒ = backwardfiltering!(𝒫sᵒ, obs, timegrids);
-    forwardguide!(InnovationsFixed(), ℐsᵒ, ℐs, 𝒫sᵒ, x0)
+    tup = (; zip(pars.names, θᵒ)...)  # make named tuple 
+    update_guidedprocesses!(𝒫sᵒ,tup)  # adjust all ℙ and ℙ̃ fields in 𝒫sᵒ according to tup
+    θᵒ
 end
 
  
@@ -386,73 +390,74 @@ end
 
 
 
-function parinf(obs, timegrids, x0,  tuningpars, ρ, ℙinit, ℙ̃init  ; parupdating=true, iterations = 300, skip_it = 10, verbose=false )
-#   iterations = 200
-#     skip_it=10
-#     tuningpars=[1.0]
+function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s; 
+                        parupdating=true, iterations = 300, skip_it = 10, verbose=false)
+  
+    (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃s; ϵ = 10e-5);
     ρs = fill(ρ, length(timegrids))    
-
-    (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙinit, ℙ̃init; ϵ = 10e-5);
     ℐs = forwardguide(x0, 𝒫s, ρs);
     ll = loglik(x0, (H0,F0,C0), ℐs)
 
     # containers
     ℐsᵒ = deepcopy(ℐs) 
     𝒫sᵒ = deepcopy(𝒫s)
-  
+
+    # don't save all paths
     subsamples = 0:skip_it:iterations
-    TX = typeof(ℐs[1].X)
-    XX = TX[]
-    (0 in subsamples) &&    push!(XX, mergepaths(ℐs))
-    θs = [getpar(𝒫s[1].ℙ)]
+    XX = [mergepaths(ℐs)]
+ 
+    θ = getpar(𝒫s, pars)
+    θs = [θ]
     
+    recomp = maximum(pars.recomputeguidingterm) # if true, then for par updating the guiding term needs to be recomputed
+
     accinnov = 0; accpar = 0 
     for iter in 1:iterations  
-      forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0)
-      llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ)
-      dll = llᵒ - ll
-      !verbose && print("ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
-  
-      if log(rand()) < dll 
-        #ℐs .= ℐsᵒ
-        ℐs, ℐsᵒ = ℐsᵒ,  ℐs
-        ll = llᵒ
-        !verbose && print("✓")    
-        accinnov += 1 
-      end 
-    #  println()
-
-      if parupdating
-        parupdate!(obs, timegrids, x0, (𝒫s, ℐs), (𝒫sᵒ, ℐsᵒ), tuningpars)
-        llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ) # if guiding term need not be recomputed
-                
-        diff_ll = llᵒ - ll 
-        !verbose && println("par update..... diff_ll: ", diff_ll)
-        #println(getpar(𝒫sᵒ[1].ℙ)[1]>0)
-        if  (log(rand()) < diff_ll) #&& (getpar(𝒫sᵒ[1].ℙ)[1]>60.0)  
-            𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
+        forwardguide!(PCN(), ℐsᵒ, ℐs, 𝒫s, x0)
+        llᵒ  = loglik(x0, (H0,F0,C0), ℐsᵒ)
+        dll = llᵒ - ll
+        !verbose && print("Innovations-PCN update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+        if log(rand()) < dll   
             ℐs, ℐsᵒ = ℐsᵒ,  ℐs
             ll = llᵒ
-            !verbose && print("✓")  
-            accpar += 1 
-        end   
-
-        push!(θs, copy( getpar(𝒫s[1]) )) 
-    end
+            !verbose && print("✓")    
+            accinnov += 1 
+        end 
+    
+        if parupdating
+            θᵒ =  parupdate!(𝒫sᵒ, θ, pars, tuningpars)
+            if recomp                # recomp guiding term if at least one parameter requires recomputing the guiding term
+                (H0ᵒ, F0ᵒ, C0ᵒ) = backwardfiltering!(𝒫sᵒ, obs, timegrids) 
+            else
+                (H0ᵒ, F0ᵒ, C0ᵒ) = (H0, F0, C0)
+            end
+            forwardguide!(InnovationsFixed(), ℐsᵒ, ℐs, 𝒫sᵒ, x0)
+            llᵒ  = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ) # if guiding term need not be recomputed
+            dll = llᵒ - ll 
+            !verbose && print("Parameter update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+            if  log(rand()) < dll #&& (getpar(𝒫sᵒ[1].ℙ)[1]>60.0)  
+                θ = θᵒ
+                𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
+                ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+                ll = llᵒ
+                (H0, F0, C0) = (H0ᵒ, F0ᵒ, C0ᵒ) 
+                !verbose && print("✓")  
+                accpar += 1 
+            end   
+            push!(θs, copy(θ)) 
+        end
  
-      (iter in subsamples) && println(iter)
-      (iter in subsamples) && push!(XX, mergepaths(ℐs))
+        (iter in subsamples) && println(iter)
+        (iter in subsamples) && push!(XX, mergepaths(ℐs))
   
-      for i in eachindex(ℐsᵒ)
-        U = rand()
-        u = ρ * (U<0.25) + (U>=0.25)
-#        @set! ℐsᵒ[i].ρ = u
-        ui = ℐsᵒ[i]
-        @set! ui.ρ = u
-        ℐsᵒ[i] = ui
-     end
-
-
+        # adjust PCN updating pars (some segments randomly left unchanged)
+        for i in eachindex(ℐsᵒ)
+            U = rand()
+            u = ρ * (U<0.25) + (U>=0.25)
+            ui = ℐsᵒ[i]
+            @set! ui.ρ = u
+            ℐsᵒ[i] = ui
+        end
     end
     println("acceptance percentage parameter: ", 100*accpar/iterations)
     println("acceptance percentage innovations: ", 100*accinnov/iterations)
