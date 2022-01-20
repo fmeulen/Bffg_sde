@@ -1,3 +1,60 @@
+struct ParInfo
+    names::Vector{Symbol}
+    recomputeguidingterm::Vector{Bool}
+end
+  
+getfield_(P) =  (x) -> getfield(P,x)
+getpar(P, ind::Vector{Symbol}) = getfield_(P).(ind)
+getpar(𝒫::GuidedProcess, p::ParInfo) = getpar(𝒫.ℙ, p.names)
+getpar(𝒫s::Vector{GuidedProcess}, p::ParInfo) = getpar(𝒫s[1].ℙ, p.names)
+
+"""
+    update_guidedprocess(𝒫, tup)
+
+    Construct new instance of GuidedProcess, with fields in ℙ and ℙ̃ adjusted according to tup
+    
+    𝒫 = 𝒫s[3]
+    tup = (C=3333333.1, A=3311.0)
+    𝒫up = update_guidedprocess(𝒫,tup)
+"""
+function update_guidedprocess(𝒫::GuidedProcess,tup)
+    # adjust ℙ
+    P_ = 𝒫.ℙ
+    P_ = setproperties(P_, tup)
+    @set! 𝒫.ℙ = P_
+    # adjust ℙ̃
+    P̃_ = 𝒫.ℙ̃
+    P̃_ = setproperties(P̃_, tup)
+    @set! 𝒫.ℙ̃ = P̃_
+    𝒫
+end    
+
+
+"""
+    update_guidedprocesses!(𝒫s, tup)
+
+    Construct new instance of GuidedProcess, with fields in ℙ and ℙ̃ adjusted according to tup
+    Do this for each element of 𝒫s and write into it
+
+    tup = (C=3333333.1, A=3311.0)
+    update_guidedprocesses!(𝒫s,tup)
+"""
+function update_guidedprocesses!(𝒫s, tup)
+    for i ∈ eachindex(𝒫s)
+        𝒫s[i] = update_guidedprocesses(𝒫s[i], tup)
+    end
+end
+
+
+
+
+
+"""
+    extract parameter vector from guided process
+"""
+getpar(𝒫::GuidedProcess, ind::Vector{Symbol}) = getpar(𝒫.ℙ, ind::Vector{Symbol})  
+
+
 say(what) = run(`osascript -e "say \"$(what)\""`, wait=false)
 
 lastval(X::SamplePath) = X.yy[end]
@@ -153,7 +210,7 @@ function plot_all(X::SamplePath, obstimes, obsvals)
     p5 = plot(X.tt, getindex.(X.yy,5), label="")
     p6 = plot(X.tt, getindex.(X.yy,6), label="")
     p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="")
-    plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=2, label="")
+    plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=1.5, label="")
     l = @layout [a b c; d e f; g]
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end

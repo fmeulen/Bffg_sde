@@ -141,3 +141,99 @@ testje(P1)
 P1.a =100
 b = P1.b 
 b .= [100 400]
+
+
+struct M
+    a
+    b
+    c
+end
+
+x = [M(1,2,3), M(4,5,6), M(7,8,9)]
+
+ind = [:a, :b]
+vals =[10, 300]
+
+# desired output
+[M(10,300,3), M(10,300,6), M(10,300,9)]
+
+using Setfield
+for i in eachindex(x)
+    xi = x[i]
+    @set! xi.a=10
+    @set! xi.b=300
+    x[i] = xi
+end
+x
+
+x = [M(1,2,3), M(4,5,6), M(7,8,9)]
+mytup = (:a => 10, :b => 300)
+map!(x, x) do xi
+    for (prop, val) ∈ mytup
+        l = Setfield.PropertyLens{prop}()
+        xi = Setfield.set(xi, l, val)
+    end
+    xi
+end
+x
+
+x = [M(1,2,3), M(4,5,6), M(7,8,9)]
+y = map(x) do xi
+    for (prop, val) ∈ mytup
+        l = Setfield.PropertyLens{prop}()
+        xi = Setfield.set(xi, l, val)
+    end
+    xi
+end
+y
+
+y
+
+
+x = [𝒫s[1].ℙ, 𝒫s[2].ℙ]
+mytup = (:a => 10, :b => 300)
+y = map(x) do xi
+    for (prop, val) ∈ mytup
+        #l = Setfield.PropertyLens{prop}()
+        l = Setfield.PropertyLens{:ℙ}();
+        (Setfield.PropertyLens{prop}())
+        xi = Setfield.set(xi, l, val)
+    end
+    xi
+end
+y
+
+
+
+
+
+
+
+
+
+using ConstructionBase
+struct Q
+    z
+end
+
+x = [Q(M(1,2,3)), Q(M(4,5,6)), Q(M(7,8,9))]
+tup = (a=10,b=300)
+for i in eachindex(x)
+    x[i] = Q(setproperties(x[i].z, tup))
+end
+x
+
+tup = (C=1000.0)
+for i ∈ eachindex(𝒫s)
+    a = 𝒫s[i].ℙ
+    xi = ConstructionBase.setproperties(a, tup)
+    𝒫s[i].ℙ = xi
+end
+
+
+
+# construction of named Tuple 
+keys = (:a, :b, :c); values = (1, 2, 3);
+(; zip(keys, values)...)
+
+(; zip(pars.names, SA[1 2 3])...)
