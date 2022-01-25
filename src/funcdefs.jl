@@ -15,6 +15,11 @@ abstract type  GuidType end
 struct PCN <: GuidType  end
 struct InnovationsFixed <: GuidType end
 
+struct ParInfo
+    names::Vector{Symbol}
+    recomputeguidingterm::Vector{Bool}
+end
+  
 
 """
     Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
@@ -61,7 +66,6 @@ struct PathInnovation{TX, TW, Tll}
         X = solve(Euler(), x0, W, 𝒫)  # allocation        
         ll = llikelihood(Bridge.LeftRule(), X, 𝒫, skip=sk)
         Wbuf = deepcopy(W)
-        #PathInnovation(X, W, ll, Wbuf, ρ)
         new{typeof(X), typeof(W), typeof(ll)}(X, W, ll, Wbuf, ρ)
     end
 end
@@ -106,7 +110,6 @@ struct GuidedProcess{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
         _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
-        #GuidedProcess(ℙ, ℙ̃, tt, Ht, Ft, C)
         new{eltype(Ft), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
 end
@@ -163,6 +166,21 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
         dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
         vectorise(dH, dF, dC)
     end
+
+    # specialised function for JansenRitDiffusionAux
+    function dHFC(y, ℙ̃::JansenRitDiffusionAux, s) # note interchanged order of arguments
+        access = Val{}(dim(ℙ̃))
+        H, F, _ = static_accessor_HFc(y, access)
+        _B, _β = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃)
+     
+        dH = - (_B' * H)  - (H * _B) + Bridge.outer( mulXσ(H, ℙ̃) )
+        dF = - (_B' * F) + H * (mulax(F, ℙ̃)  + _β) 
+        dC = dot(_β, F) + 0.5* dotσx(F, ℙ̃)^2 - 0.5* trXa(H, ℙ̃)
+        vectorise(dH, dF, dC)
+    end
+
+    
+    
     yT = vectorise(HT, FT, CT)
     prob = ODEProblem{false}(
             dHFC,   # increment
@@ -189,19 +207,12 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
     
     #  savedt = saved_values.t
     ss = saved_values.saveval
-
     reverse!(ss)
     Ht .= getindex.(ss,1)
     Ft .= getindex.(ss,2)
-    # for i ∈ eachindex(savedt)
-    #     Ht[i] = getindex.(ss,1)[i]  # trouble with profileview
-    #     Ft[i] = getindex.(ss,2)[i]
-    # end
-    #    C = sol.u[1][end]    # = getindex.(saved_y,3)[1]
     C = getindex(ss[end],3)
     Ht, Ft, C
 end
-
 
 
 
@@ -217,9 +228,6 @@ end
 
 
 r((i,t)::IndexedTime, x, 𝒫::GuidedProcess) = 𝒫.F[i] - 𝒫.H[i] * x 
-
-logh̃(x, (H,F,C)) = -0.5 * x' * H * x + F' * x + C    
-   
 Bridge._b((i,t)::IndexedTime, x, 𝒫::GuidedProcess)  =  Bridge.b(t, x, 𝒫.ℙ) + Bridge.a(t, x, 𝒫.ℙ) * r((i,t),x,𝒫)   
 Bridge.σ(t, x, 𝒫::GuidedProcess) = Bridge.σ(t, x, 𝒫.ℙ)
 Bridge.a(t, x, 𝒫::GuidedProcess) = Bridge.a(t, x, 𝒫.ℙ)
@@ -245,10 +253,8 @@ function llikelihood(::LeftRule, X::SamplePath, 𝒫::GuidedProcess; skip = sk)
     som 
 end
 
-function loglik(x0, (H0,F0,C0), ℐs::Vector{PathInnovation})
-    logh̃(x0, (H0,F0,C0)) + sum(map(x -> x.ll, ℐs))
-end   
-
+logh̃(x, (H,F,C)) = -0.5 * x' * H * x + F' * x + C    
+loglik(x0, (H0,F0,C0), ℐs::Vector{PathInnovation}) = logh̃(x0, (H0,F0,C0)) + sum(getfield.(ℐs,:ll))
 
 function forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), 𝒫, ρ; skip=sk, verbose=false)
     acc = false
@@ -274,23 +280,34 @@ end
 
 
 
-function forwardguide(x0, 𝒫s, ρs)
+"""
+    forwardguide(x0, 𝒫s::Vector{GuidedProcess}, ρs)
+
+    Using info from 𝒫s, and PCN-pars in ρs, starting point x0,
+    forward simulate the guided process on each segment.
+
+    On each segment a `PathInnovation`-object is constructed.
+    Funtion returns a  vector of PathInnovation objects, one for each segment
+"""
+
+function forwardguide(x0, 𝒫s::Vector{GuidedProcess}, ρs)
     xend = x0
     ℐs = PathInnovation[]
     for i ∈ eachindex(𝒫s)
         push!(ℐs, PathInnovation(xend, 𝒫s[i], ρs[i]))
         xend = lastval(ℐs[i])
     end
-    # H0, F0, C0 = 𝒫s[1].H[1], 𝒫s[1].F[1], 𝒫s[1].C
-    # loglik = logh̃(x0, (H0,F0,C0)) + sum(map(x -> x.ll, ℐs))
     ℐs
 end
 
 
 """
-    forwardguide(::InnovationsFixed, ℐ::PathInnovation, 𝒫::GuidedProcess, x0; skip=sk, verbose=false)
+    forwardguide!(::InnovationsFixed, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)     
 
-    Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0
+    Using GuidedProposal 𝒫 and innovations extracted from the W-field of ℐ, simulate a guided process starting in x0, write into
+    ℐᵒ, whos `X` and `W` field are overwritten.
+
+    Returns last value of simulated path, as also likelihood of this path
 """
 function forwardguide!(::InnovationsFixed, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫::GuidedProcess, x0)    
     ℐᵒ.W.yy .= ℐ.W.yy
@@ -309,12 +326,10 @@ function forwardguide!(::PCN, ℐᵒ::PathInnovation,  ℐ::PathInnovation, 𝒫
 end
 
 """
-    forwardguide!(gt::GuidType, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0; skip=sk, verbose=false)
+    forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
 
     Using a vector of guided process, simulate a new path on all segments. 
-    The elements of ℐs get overwritten and hence possibly change. 
-
-    returns total number of segments on which the update type was accepted.
+    The elements of ℐsᵒ get overwritten and hence possibly change. 
 """
 function forwardguide!(gt::GuidType, ℐsᵒ::Vector{PathInnovation}, ℐs::Vector{PathInnovation}, 𝒫s::Vector{GuidedProcess}, x0)
     x_ = x0  
@@ -333,24 +348,15 @@ end
 
 
 
-
-
-
-
-
-
 function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
     #Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(ℙ); ϵ=ϵ)
-    n = length(obs)
+    n = length(obs)-1
     #HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
-    (HT, FT, CT) = HFC(obs[n])
+    (HT, FT, CT) = HFC(obs[end])
     𝒫s = GuidedProcess[]
-
-    for i in n-1:-1:1
+    for i in n:-1:1
         𝒫 = GuidedProcess(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], HT, FT, CT) # profileview colours red here
         pushfirst!(𝒫s, 𝒫)
-        # message = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
-        # (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
         (HT, FT, CT) = fusion_HFC(HFC0(𝒫), HFC(obs[i]))
     end
     (HT, FT, CT), 𝒫s
@@ -358,45 +364,87 @@ end
 
 HFC0(𝒫::GuidedProcess) = (𝒫.H[1], 𝒫.F[1], 𝒫.C[1])
 
-function backwardfiltering!(𝒫s, obs, timegrids; ϵ = 10e-2) #FIXME
-    #Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(𝒫s[1].ℙ); ϵ=ϵ)
-    n = length(obs)
-    #HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
-    (HT, FT, CT) = HFC(obs[n])
 
-    for i in n-1:-1:1
-        𝒫s[i] = GuidedProcess(DE(Vern7()), 𝒫s[i].ℙ, 𝒫s[i].ℙ̃, timegrids[i], HT, FT, CT)
-        # message = (𝒫s[i].H[1], 𝒫s[i].F[1], 𝒫s[i].C[1])
-        # (HT, FT, CT) = fusion_HFC(message, HFC(obs[i]))
+#FIXME
+function backwardfiltering!(𝒫s, obs; ϵ = 10e-2) 
+    #Hinit, Finit, Cinit =  init_HFC(obs[end].v, obs[end].L, dim(𝒫s[1].ℙ); ϵ=ϵ)
+    n = length(𝒫s)
+    #HT, FT, CT = fusion_HFC(HFC(obs[n]), (Hinit, Finit, Cinit) )
+    (HT, FT, CT) = HFC(obs[end])
+    for i in n:-1:1
+        #𝒫s[i] = GuidedProcess(DE(Vern7()), 𝒫s[i].ℙ, 𝒫s[i].ℙ̃, timegrids[i], HT, FT, CT)
+        pbridgeode_HFC!(DE(Vern7()), 𝒫s[i].ℙ̃, 𝒫s[i].tt, (𝒫s[i].H, 𝒫s[i].F), (HT, FT, CT))
         (HT, FT, CT) = fusion_HFC(HFC0(𝒫s[i]), HFC(obs[i]))
     end
-    #(HT, FT, CT), 𝒫s
     (HT, FT, CT)
+end
+
+"""
+    update_guidedprocess(𝒫, tup)
+
+    Construct new instance of GuidedProcess, with fields in ℙ and ℙ̃ adjusted according to tup
+    
+    𝒫 = 𝒫s[3]
+    tup = (C=3333333.1, A=3311.0)
+    𝒫up = update_guidedprocess(𝒫,tup)
+"""
+function update_guidedprocess(𝒫::GuidedProcess,tup)
+    # adjust ℙ
+    P_ = 𝒫.ℙ
+    P_ = setproperties(P_, tup)
+    @set! 𝒫.ℙ = P_
+    # adjust ℙ̃
+    P̃_ = 𝒫.ℙ̃
+    P̃_ = setproperties(P̃_, tup)
+    @set! 𝒫.ℙ̃ = P̃_
+    𝒫
+end    
+
+
+"""
+    update_guidedprocesses!(𝒫s, tup)
+
+    Construct new instance of GuidedProcess, with fields in ℙ and ℙ̃ adjusted according to tup
+    Do this for each element of 𝒫s and write into it
+
+    tup = (C=3333333.1, A=3311.0)
+    update_guidedprocesses!(𝒫s,tup)
+"""
+function update_guidedprocesses!(𝒫s, tup)
+    for i ∈ eachindex(𝒫s)
+        𝒫s[i] = update_guidedprocess(𝒫s[i], tup)
+    end
 end
 
 
 
 
-function parupdate!(𝒫sᵒ, θ, pars::ParInfo,  tuningpars)
+"""
+    parupdate!(𝒫sᵒ, θ, pars::ParInfo,  tuningpars)
+
+    Propose new value for θ and write that into all relevant fields (ℙ and ℙ̃) of 𝒫sᵒ
+"""
+function parupdate!(𝒫sᵒ::Vector{GuidedProcess}, θ, pars::ParInfo,  tuningpars)
     θᵒ = parameterkernel(θ, tuningpars)  
     tup = (; zip(pars.names, θᵒ)...)  # make named tuple 
     update_guidedprocesses!(𝒫sᵒ,tup)  # adjust all ℙ and ℙ̃ fields in 𝒫sᵒ according to tup
     θᵒ
 end
 
- 
-    
-
-
-
-
+   
 function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s; 
-                        parupdating=true, iterations = 300, skip_it = 10, verbose=false)
+                        parupdating=true, guidingterm_with_x1=false, iterations = 300, skip_it = 10, verbose=false)
   
     (H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃s; ϵ = 10e-5);
+    if guidingterm_with_x1
+        add_deterministicsolution_x1!(𝒫s, x0)
+        (H0, F0, C0) = backwardfiltering!(𝒫s, obs)
+    end
+    
     ρs = fill(ρ, length(timegrids))    
     ℐs = forwardguide(x0, 𝒫s, ρs);
     ll = loglik(x0, (H0,F0,C0), ℐs)
+
 
     # containers
     ℐsᵒ = deepcopy(ℐs) 
@@ -408,7 +456,8 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s;
  
     θ = getpar(𝒫s, pars)
     θs = [θ]
-    
+    lls = [ll]
+
     recomp = maximum(pars.recomputeguidingterm) # if true, then for par updating the guiding term needs to be recomputed
 
     accinnov = 0; accpar = 0 
@@ -423,11 +472,12 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s;
             !verbose && print("✓")    
             accinnov += 1 
         end 
+        push!(lls, ll)
     
         if parupdating
             θᵒ =  parupdate!(𝒫sᵒ, θ, pars, tuningpars)
             if recomp                # recomp guiding term if at least one parameter requires recomputing the guiding term
-                (H0ᵒ, F0ᵒ, C0ᵒ) = backwardfiltering!(𝒫sᵒ, obs, timegrids) 
+                (H0ᵒ, F0ᵒ, C0ᵒ) = backwardfiltering!(𝒫sᵒ, obs) 
             else
                 (H0ᵒ, F0ᵒ, C0ᵒ) = (H0, F0, C0)
             end
@@ -435,10 +485,12 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s;
             llᵒ  = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), ℐsᵒ) # if guiding term need not be recomputed
             dll = llᵒ - ll 
             !verbose && print("Parameter update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
-            if  log(rand()) < dll #&& (getpar(𝒫sᵒ[1].ℙ)[1]>60.0)  
+            if  log(rand()) < dll && (getpar(𝒫sᵒ, pars)[1]>10.0)  
                 θ = θᵒ
-                𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
-                ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+                 𝒫s, 𝒫sᵒ = 𝒫sᵒ, 𝒫s
+                 ℐs, ℐsᵒ = ℐsᵒ,  ℐs
+                # @. 𝒫s = 𝒫sᵒ # this does not work
+                # @. ℐs = ℐsᵒ
                 ll = llᵒ
                 (H0, F0, C0) = (H0ᵒ, F0ᵒ, C0ᵒ) 
                 !verbose && print("✓")  
@@ -446,7 +498,9 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s;
             end   
             push!(θs, copy(θ)) 
         end
- 
+        
+        push!(lls, ll)
+
         (iter in subsamples) && println(iter)
         (iter in subsamples) && push!(XX, mergepaths(ℐs))
   
@@ -461,7 +515,7 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ, ℙ̃s;
     end
     println("acceptance percentage parameter: ", 100*accpar/iterations)
     println("acceptance percentage innovations: ", 100*accinnov/iterations)
-    XX, θs, ℐs, (accpar=accpar, accinnov=accinnov)
+    XX, θs, ℐs, lls, (accpar=accpar, accinnov=accinnov)
   end
   
 
@@ -490,3 +544,55 @@ end
 
 
 
+# solving for deterministic system in (x1, x4)
+
+"""
+    odesolx1(t, (x10, x40),  ℙ::JansenRitDiffusionAux)
+
+    We consider the first and fourth coordinate of the JR-system, equating the difference 
+    x2-x3 to the observed value at the right-end-point of the time-interval.
+
+    On the timegrid t, the solution for x1 is computed, provided the initial conditions (x10, x40) at time t[1]
+
+    Returns:
+    - solution of x1 on timegrid t
+    - (x1, x4)) at t[end]
+"""
+
+function odesolx1(t, (x10, x40),  ℙ::JansenRitDiffusionAux)
+    t0 = t[1]
+    vT = ℙ.vT[1]
+    c = ℙ.A*ℙ.a*sigm(vT, ℙ)
+    k1= x10 - c/ℙ.a^2
+    k2 = x40 + ℙ.a*k1 
+    dt = t .- t0
+    sol = c/ℙ.a^2 .+ (k1 .+ k2* dt) .* exp.(-ℙ.a*dt) 
+    x4end = (k2- ℙ.a *k1-ℙ.a*k2*(t[end]-t0)) * exp(-ℙ.a*(t[end]-t0))
+    sol, (sol[end], x4end)
+end
+
+"""
+    add_deterministicsolution_x1!(𝒫s::Vector{GuidedProcess}, x0)
+
+    Sequentially call (on each segment)
+        odesolx1(t, (x10, x40),  ℙ::JansenRitDiffusionAux)
+    such that the resulting path is continuous. 
+
+    Write the obtained solution for x1 into the ℙ̃.x1 field on each GuidedProcess
+"""
+function add_deterministicsolution_x1!(𝒫s::Vector{GuidedProcess}, x0)
+    xend = x0
+    for i in eachindex(𝒫s)
+        u = 𝒫s[i]
+        sol, xend = odesolx1(u.tt, xend, u.ℙ̃)
+        @set! u.ℙ̃.x1 = LinearInterpolation(u.tt, sol)
+        @set! u.ℙ̃.guidingterm_with_x1 = true
+        𝒫s[i] = u 
+    end
+end
+
+
+# tt = [𝒫s[i].tt for i in eachindex(ℐs)]
+# yy = [𝒫s[i].ℙ̃.x1(tt[i]) for i in eachindex(ℐs)]
+# p = plot_(ℐs,1)
+# plot!(p,vcat(tt...), vcat(yy...),color="grey")

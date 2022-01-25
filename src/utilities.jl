@@ -1,49 +1,8 @@
-struct ParInfo
-    names::Vector{Symbol}
-    recomputeguidingterm::Vector{Bool}
-end
-  
+
 getfield_(P) =  (x) -> getfield(P,x)
 getpar(P, ind::Vector{Symbol}) = getfield_(P).(ind)
 getpar(𝒫::GuidedProcess, p::ParInfo) = getpar(𝒫.ℙ, p.names)
 getpar(𝒫s::Vector{GuidedProcess}, p::ParInfo) = getpar(𝒫s[1].ℙ, p.names)
-
-"""
-    update_guidedprocess(𝒫, tup)
-
-    Construct new instance of GuidedProcess, with fields in ℙ and ℙ̃ adjusted according to tup
-    
-    𝒫 = 𝒫s[3]
-    tup = (C=3333333.1, A=3311.0)
-    𝒫up = update_guidedprocess(𝒫,tup)
-"""
-function update_guidedprocess(𝒫::GuidedProcess,tup)
-    # adjust ℙ
-    P_ = 𝒫.ℙ
-    P_ = setproperties(P_, tup)
-    @set! 𝒫.ℙ = P_
-    # adjust ℙ̃
-    P̃_ = 𝒫.ℙ̃
-    P̃_ = setproperties(P̃_, tup)
-    @set! 𝒫.ℙ̃ = P̃_
-    𝒫
-end    
-
-
-"""
-    update_guidedprocesses!(𝒫s, tup)
-
-    Construct new instance of GuidedProcess, with fields in ℙ and ℙ̃ adjusted according to tup
-    Do this for each element of 𝒫s and write into it
-
-    tup = (C=3333333.1, A=3311.0)
-    update_guidedprocesses!(𝒫s,tup)
-"""
-function update_guidedprocesses!(𝒫s, tup)
-    for i ∈ eachindex(𝒫s)
-        𝒫s[i] = update_guidedprocesses(𝒫s[i], tup)
-    end
-end
 
 
 
@@ -67,14 +26,15 @@ function mergepaths(ℐs)
     SamplePath(vcat(tt...),vcat(yy...))
 end
 
-function init_auxiliary_processes(TypeAuxProcess, obs, ℙ)
-    ℙ̃s = TypeAuxProcess[]
+function init_auxiliary_processes(AuxType, obs, ℙ; x1_init=-0.0)
+    ℙ̃s = AuxType[]
     n = length(obs)
-    for i in 1:n
-      push!(ℙ̃s, TypeAuxProcess(obs[i].t, obs[i].v[1], ℙ))
+    for i in 2:n # skip x0
+      lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], [x1_init, x1_init] )
+      push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
     end
     ℙ̃s
-  end  
+end  
   
 
 """
@@ -214,3 +174,31 @@ function plot_all(X::SamplePath, obstimes, obsvals)
     l = @layout [a b c; d e f; g]
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end
+
+
+
+function plotboth(X::SamplePath, ℐs::Vector{PathInnovation}, comp)
+    p1 = plot(X.tt, getindex.(X.yy,comp), label="",color="grey")
+    for k in 1:length(ℐs)
+        plot!(p1, ℐs[k].X.tt, ec(ℐs[k].X.yy,comp), label="")
+    end
+    p1
+end
+
+function plot_all(X::SamplePath, obstimes, obsvals,ℐs::Vector{PathInnovation})
+    p1 = plotboth(X, ℐs, 1)
+    p2 = plotboth(X, ℐs, 2)
+    p3 = plotboth(X, ℐs, 3)
+    p4 = plotboth(X, ℐs, 4)
+    p5 = plotboth(X, ℐs, 5)
+    p6 = plotboth(X, ℐs, 6)
+    
+    p2_3 = plot_(ℐs,"23")
+    p2_3 = plot!(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="", color="grey")
+    plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=1.5, label="")
+    
+
+    l = @layout [a b c; d e f; g]
+    plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
+end
+
