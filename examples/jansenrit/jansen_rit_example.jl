@@ -32,6 +32,8 @@ using ProfileView
 include("jansenrit.jl")
 include("jansenrit3.jl")
 
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/types.jl")
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/forwardguiding.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 
@@ -62,7 +64,7 @@ end
 #---- generate test data
 T = 1.0
 x0 = @SVector zeros(6)
-W = sample((-.50):0.0001:T, wienertype(ℙ))                        #  sample(tt, Wiener{ℝ{1}}())
+W = sample((-1.0):0.0001:T, wienertype(ℙ))                        #  sample(tt, Wiener{ℝ{1}}())
 Xf_prelim = solve(Euler(), x0, W, ℙ)
 # drop initial nonstationary behaviour
 Xf = SamplePath(Xf_prelim.tt[10001:end], Xf_prelim.yy[10001:end])
@@ -93,48 +95,44 @@ obs[1] = Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*
 timegrids = set_timegrids(obs, 0.00005)
 ρ = 0.95
 ρs = fill(ρ, length(timegrids))
-#------- Backwards filtering
 
-ℙ̃s = init_auxiliary_processes(AuxType, obs, ℙ)
-(H0, F0, C0), 𝒫s = backwardfiltering(obs, timegrids, ℙ, ℙ̃s);
+#------- Backwards filtering, Forwards guiding initialisation
+(H0, F0, C0), Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, false);
+Ps = forwardguide(x0, Ms, ρs);
 
-
-# Forwards guiding initialisation
-ℐs = forwardguide(x0, 𝒫s, ρs);
-
-plot_all(ℐs)
+plot_all(Ps)
 savefig(joinpath(outdir,"guidedinitial.png"))
 pf = plot_all(Xf)
-pg = plot_all(ℐs)
+pg = plot_all(Ps)
 l = @layout  [a;b]
 plot(pf, pg, layout=l)
 savefig(joinpath(outdir,"forward_and_guidedinital.png"))
-plot(obstimes[2:end], map(x->x.ll, ℐs), seriestype=:scatter, label="loglik")
+plot(obstimes[2:end], map(x->x.ll, Ps), seriestype=:scatter, label="loglik")
 savefig(joinpath(outdir, "loglik_segments.png"))
 
-deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
+deviations = [ obs[i].v - obs[i].L * lastval(Ps[i-1])  for i in 2:length(obs)]
 plot(obstimes[2:end], map(x-> x[1,1], deviations))
 savefig(joinpath(outdir,"deviations_guidedinitial.png"))
 
-plot_all(Xf, obstimes, obsvals,ℐs)
+plot_all(Xf, obstimes, obsvals,Ps)
 savefig(joinpath(outdir,"forward_guided_initial_overlaid.png"))
 
 # backward filter with deterministic solution for x1 in β
-add_deterministicsolution_x1!(𝒫s, x0)
-backwardfiltering!(𝒫s, obs)
-ℐs = forwardguide(x0, 𝒫s, ρs);
-pg = plot_all(ℐs)
+(H0, F0, C0), Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, true);
+Ps = forwardguide(x0, Ms, ρs);
+
+pg = plot_all(Ps)
 plot(pf, pg, layout=l)
 savefig(joinpath(outdir,"guidedinitial_withx1deterministic.png"))
 
-plot(obstimes[2:end], map(x->x.ll, ℐs), seriestype=:scatter, label="loglik")
+plot(obstimes[2:end], map(x->x.ll, Ps), seriestype=:scatter, label="loglik")
 savefig(joinpath(outdir, "loglik_segments_withx1deterministic.png"))
 
-plot_all(Xf, obstimes, obsvals,ℐs)
+plot_all(Xf, obstimes, obsvals,Ps)
 savefig(joinpath(outdir,"forward_guided_initial_overlaid_withx1deterministic.png"))
 
 # check whether interpolation goes fine
-deviations = [ obs[i].v - obs[i].L * lastval(ℐs[i-1])  for i in 2:length(obs)]
+deviations = [ obs[i].v - obs[i].L * lastval(Ps[i-1])  for i in 2:length(obs)]
 plot(obstimes[2:end], map(x-> x[1,1], deviations))
 savefig(joinpath(outdir,"deviations_guidedinitial_withx1deterministic.png"))
 
@@ -145,55 +143,51 @@ savefig(joinpath(outdir,"deviations_guidedinitial_withx1deterministic.png"))
 
 # proposals
 ρ = 0.99
-#ρ = -0.7
-
 parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 
-pars = ParInfo([:C, :μy, :σy], [false, true, true])
-tuningpars = [15.0, 10.0, 10.0]
+# pars = ParInfo([:C, :μy, :σy], [false, true, true])
+# tuningpars = [15.0, 10.0, 10.0]
 
 pars = ParInfo([:C], [false])
-tuningpars = [20.0]
+tuningpars = [15.0]
 #tup = (; zip(pars.names, SA[1.0])...)  # make named tuple 
 
-# pars = ParInfo([:C, :μy], [false, true])
-# tuningpars = [15.0, 10.0]
+ pars = ParInfo([:C, :μy], [false, true])
+ tuningpars = [15.0, 10.0]
 
 
 
 # initialisation
-ℙinit = setproperties(ℙ, (C=500.0, σy=30000.0))   # C=100.0, μy=100.0) 
-ℙ̃s_init = init_auxiliary_processes(AuxType, obs, ℙinit)
-
+ℙinit = setproperties(ℙ, (C=500.0, σy=40000.0))   # C=100.0, μy=100.0) 
 
 #Profile.init() 
 #ProfileView.@profview 
 
 parup = true
-XX, θs, ℐs, lls, (accpar, accinnov) =   parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit, ℙ̃s_init; 
+XX, θs, Ps, lls, (accpar, accinnov) =   parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
                 skip_it = 100, iterations=5_000, verbose=true, parupdating=parup);    
 
 
-pℐ =  plot_all(ℐs)
+pP =  plot_all(Ps)
 
 l = @layout [a ;b]
-plot(pF, pℐ,  layout=l)
+plot(pF, pP,  layout=l)
 savefig(joinpath(outdir, "forward_and_guided_lastiterate.png"))
 
-plot_all(Xf, obstimes, obsvals, ℐs)
+plot_all(Xf, obstimes, obsvals, Ps)
 
 pC = plot(map(x->x[1], θs), label="C")
 Plots.abline!(pC,  0.0, ℙ.C )
 histogram(map(x->x[1], θs),bins=35)
-# pμy = plot(map(x->x[2], θs), label="μy")
-# Plots.abline!(pμy,  0.0, ℙ.μy )
+ pμy = plot(map(x->x[2], θs), label="μy")
+ Plots.abline!(pμy,  0.0, ℙ.μy )
 # pσy = plot(map(x->x[3], θs), label="σy")
 # Plots.abline!(pσy,  0.0, ℙ.σy )
 # l = @layout [a b c]
 # plot(pC, pμy, pσy, layout=l)
 savefig(joinpath(outdir,"thetas.png"))
 
-p23 = plot_(ℐs,"23")
+p23 = plot_(Ps,"23")
 plot!(p23, Xf.tt, getindex.(Xf.yy,2) - getindex.(Xf.yy,3), label="")
 savefig(joinpath(outdir,"second_minus_third.png"))
 
