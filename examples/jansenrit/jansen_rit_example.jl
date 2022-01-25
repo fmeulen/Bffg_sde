@@ -97,7 +97,7 @@ timegrids = set_timegrids(obs, 0.00005)
 ρs = fill(ρ, length(timegrids))
 
 #------- Backwards filtering, Forwards guiding initialisation
-(H0, F0, C0), Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, false);
+h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, false);
 Ps = forwardguide(x0, Ms, ρs);
 
 plot_all(Ps)
@@ -118,7 +118,7 @@ plot_all(Xf, obstimes, obsvals,Ps)
 savefig(joinpath(outdir,"forward_guided_initial_overlaid.png"))
 
 # backward filter with deterministic solution for x1 in β
-(H0, F0, C0), Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, true);
+h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, true);
 Ps = forwardguide(x0, Ms, ρs);
 
 pg = plot_all(Ps)
@@ -152,8 +152,8 @@ pars = ParInfo([:C], [false])
 tuningpars = [15.0]
 #tup = (; zip(pars.names, SA[1.0])...)  # make named tuple 
 
- pars = ParInfo([:C, :μy], [false, true])
- tuningpars = [15.0, 10.0]
+#  pars = ParInfo([:C, :μy], [false, true])
+#  tuningpars = [15.0, 10.0]
 
 
 
@@ -165,7 +165,7 @@ tuningpars = [15.0]
 
 parup = true
 XX, θs, Ps, lls, (accpar, accinnov) =   parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
-                skip_it = 100, iterations=5_000, verbose=true, parupdating=parup);    
+                skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);    
 
 
 pP =  plot_all(Ps)

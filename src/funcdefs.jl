@@ -1,11 +1,11 @@
 """
-    pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
+    pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
 
     Solve backward ODEs for `(H, F, C)` starting from `(HT, FT, CT)`` on time grid `t``
     Auxiliary process is given by ℙ̃
     Writes into (Ht, Ft)
 """
-function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
+function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
     function dHFC(s, y, ℙ̃)
         access = Val{}(dim(ℙ̃))
         H, F, _ = static_accessor_HFc(y, access)
@@ -17,9 +17,9 @@ function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
         vectorise(dH, dF, dC)
     end
 
-    Ht[end] = HT
-    Ft[end] = FT
-    C = CT
+    Ht[end] = hT.H
+    Ft[end] = hT.F
+    C = hT.C
     access = Val{}(dim(ℙ̃))
     y = vectorise(HT, FT, CT)
 
@@ -32,7 +32,7 @@ function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), (HT, FT, CT))
 end
 
 
-function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
+function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
     function dHFC(y, ℙ̃, s) # note interchanged order of arguments
         access = Val{}(dim(ℙ̃))
         H, F, C = static_accessor_HFc(y, access)
@@ -58,14 +58,14 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
 
     
     
-    yT = vectorise(HT, FT, CT)
+    yT = vectorise(hT.H, hT.F, hT.C)
     prob = ODEProblem{false}(
             dHFC,   # increment
             yT, # starting val
             (tt[end], tt[1]),   # time interval
             ℙ̃)  # parameter
     access = Val{}(dim(ℙ̃))
-    TP = typeof(HT); Tν= typeof(FT); Tc = typeof(CT)
+    TP = typeof(hT.H); Tν= typeof(hT.F); Tc = typeof(hT.C)
     saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
     callback = SavingCallback(
         (u,t,integrator) -> static_accessor_HFc(u, access),
@@ -94,36 +94,38 @@ end
 
 
 """
-    fusion_HFC((H1, F1, C1), (H2, F2, C2))
+    fusion_HFC(h1, h2)
 
     returns added characteristics that correspond to fusion in (H,F,C)-parametrisation
 """
-function fusion_HFC((H1, F1, C1), (H2, F2, C2))
-    H1 + H2, F1 + F2, C1+C2
+function fusion_HFC(h1, h2)
+    #H, F, C = h1.H + h2.H, h1.F + h2.F, h1.C + h2.C
+    Htransform(h1.H + h2.H, h1.F + h2.F, h1.C + h2.C)
+    #Htransform(H, F, C)
 end
 
 
 function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
     n = length(obs)-1
-    (HT, FT, CT) = HFC(obs[end])
+    hT = obs[end].h
     Ms = Message[]
     for i in n:-1:1
-        M = Message(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], HT, FT, CT) 
+        M = Message(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], hT) 
         pushfirst!(Ms, M)
-        (HT, FT, CT) = fusion_HFC(HFC0(M), HFC(obs[i]))
+        hT = fusion_HFC(Htransform(M), obs[i].h)
     end
-    (HT, FT, CT), Ms
+    hT, Ms
 end
 
 
 function backwardfiltering!(Ms, obs; ϵ = 10e-2) 
     n = length(Ms)
-    (HT, FT, CT) = HFC(obs[end])
+    hT = obs[end].h
     for i in n:-1:1
-        pbridgeode_HFC!(DE(Vern7()), Ms[i].ℙ̃, Ms[i].tt, (Ms[i].H, Ms[i].F), (HT, FT, CT))
-        (HT, FT, CT) = fusion_HFC(HFC0(Ms[i]), HFC(obs[i]))
+        pbridgeode_HFC!(DE(Vern7()), Ms[i].ℙ̃, Ms[i].tt, (Ms[i].H, Ms[i].F), hT) #FIXME
+        hT = fusion_HFC(Htransform(Ms[i]), obs[i].h)
     end
-    (HT, FT, CT)
+    hT
 end
 
 """
@@ -184,9 +186,9 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
                         iterations = 300, skip_it = 10, verbose=false, AuxType=JansenRitDiffusionAux)
     # initialisation
     ρs = fill(ρ, length(timegrids))    
-    (H0, F0, C0), Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, guidingterm_with_x1);
+    h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, guidingterm_with_x1);
     Ps = forwardguide(x0, Ms, ρs);
-    ll = loglik(x0, (H0,F0,C0), Ps)
+    ll = loglik(x0, h0, Ps)
     θ = getpar(Ms, pars)
 
     # containers
@@ -203,7 +205,7 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
 
     accinnov = 0; accpar = 0 
     for iter in 1:iterations  
-        θ, Ms, Ps, lls_, (H0, F0, C0), accinnov_, accpar_ = update!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, (H0, F0, C0), x0, recomp, tuningpars;
+        θ, Ms, Ps, lls_, h0, accinnov_, accpar_ = update!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0, recomp, tuningpars;
                              verbose=verbose, parupdating=parupdating)
         ll = last(lls_)
 
@@ -225,10 +227,10 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
 
 
 
-  function update!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, (H0, F0, C0), x0, recomp, tuningpars; verbose=false, parupdating=true)
+  function update!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0, recomp, tuningpars; verbose=false, parupdating=true)
     accinnov_ = 0 ; accpar_ =0
     forwardguide!(PCN(), Psᵒ, Ps, Ms, x0)
-    llᵒ  = loglik(x0, (H0,F0,C0), Psᵒ)
+    llᵒ  = loglik(x0, h0, Psᵒ)
     dll = llᵒ - ll
     !verbose && print("Innovations-PCN update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
     if log(rand()) < dll   
@@ -242,12 +244,12 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
     if parupdating
         θᵒ =  parupdate!(Msᵒ, θ, pars, tuningpars)
         if recomp                # recomp guiding term if at least one parameter requires recomputing the guiding term
-            (H0ᵒ, F0ᵒ, C0ᵒ) = backwardfiltering!(Msᵒ, obs) 
+            h0ᵒ = backwardfiltering!(Msᵒ, obs) 
         else
-            (H0ᵒ, F0ᵒ, C0ᵒ) = (H0, F0, C0)
+            h0ᵒ = h0
         end # so whatever Msᵒ was, it got updated by a new value of θ and all other fields are consistent
         forwardguide!(InnovationsFixed(), Psᵒ, Ps, Msᵒ, x0)  # whatever Psᵒ was, using innovations from Ps and Msᵒ we guide forwards
-        llᵒ  = loglik(x0, (H0ᵒ,F0ᵒ,C0ᵒ), Psᵒ) # if guiding term need not be recomputed
+        llᵒ  = loglik(x0, h0ᵒ, Psᵒ) # if guiding term need not be recomputed
         dll = llᵒ - ll 
         !verbose && print("Parameter update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
         if  log(rand()) < dll && (getpar(Msᵒ, pars)[1]>10.0)  
@@ -255,13 +257,13 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
             Ms, Msᵒ = Msᵒ, Ms
             Ps, Psᵒ = Psᵒ,  Ps
             ll = llᵒ
-            (H0, F0, C0) = (H0ᵒ, F0ᵒ, C0ᵒ) 
+            h0 = h0ᵒ
             !verbose && print("✓")  
             accpar_ = 1 
         end   
         push!(lls_, ll)
     end
-    θ, Ms, Ps, lls_, (H0, F0, C0), accinnov_, accpar_
+    θ, Ms, Ps, lls_, h0, accinnov_, accpar_
 end
 
 

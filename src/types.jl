@@ -15,6 +15,30 @@ abstract type  GuidType end
 struct PCN <: GuidType  end
 struct InnovationsFixed <: GuidType end
 
+struct Obs end # for dispatch in Htransform
+struct Htransform{TH, TF, TC}
+    H::TH
+    F::TF
+    C::TC
+
+    Htransform(H::TH, F::TF, C::TC) where {TH,TF,TC} = new{TH,TF,TC}(H,F,C)
+    
+    function Htransform(M::Message) 
+        new{eltype(M.H), eltype(M.F), typeof(M.C)}(M.H[1], M.F[1], M.C)
+    end
+    """
+        Htransform(v, L, Σ)
+
+        Convert observation v ~ N(Lx, Σ)
+        to triplet (H, F, C), which is of type Htransform
+    """
+    function Htransform(::Obs, v, L, Σ)
+        A = L' * inv(Σ)
+        H, F, C = A * L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v) 
+        new{typeof(H), typeof(F), typeof(C)}(H, F, C)
+    end
+end
+
 struct ParInfo
     names::Vector{Symbol}
     recomputeguidingterm::Vector{Bool}
@@ -22,26 +46,24 @@ end
   
 
 """
-    Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
+    Observation{Tt, Tv, TL, TΣ, Th}
 
     (t,v,L,Σ): at time t we have observations v ~ N(Lx_t, Σ)
-    (H, F, C): message from the observation to the triple`
+    h: htransform of the observation 
 """
-struct Observation{Tt, Tv, TL, TΣ, TH, TF, TC}
+struct Observation{Tt, Tv, TL, TΣ, Th}
     t::Tt
     v::Tv
     L::TL
     Σ::TΣ
-    H::TH
-    F::TF
-    C::TC
-    Observation(t::Tt, v::Tv, L::TL, Σ::TΣ, H::TH, F::TF, C::TC) where {Tt,Tv,TL,TΣ,TH, TF, TC} =
-        new{Tt, Tv, TL, TΣ, TH, TF, TC}(t,v,L,Σ,H,F,C)
+    h::Th
+    Observation(t::Tt, v::Tv, L::TL, Σ::TΣ, h::Th) where {Tt,Tv,TL,TΣ,Th} =
+        new{Tt, Tv, TL, TΣ, Th}(t,v,L,Σ,h)
 
 
     function Observation(t::Tt, v::Tv, L::TL, Σ::TΣ) where {Tt, Tv, TL, TΣ}
-        H, F, C = observation_HFC(v, L, Σ)
-        new{Tt, Tv, TL, TΣ, typeof(H), typeof(F), typeof(C)}(t,v,L,Σ,H,F,C)
+        h = Htransform(Obs(), v, L, Σ)
+        new{Tt, Tv, TL, TΣ, typeof(h)}(t,v,L,Σ,h)
     end    
 end
 
@@ -95,31 +117,32 @@ struct Message{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
         new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TH,TF,TC}(ℙ, ℙ̃, tt, Ht, Ft, C)
 
     # constructor: provide (ℙ, ℙ̃, timegrid HT, FT, CT)    
-    function Message(::RK4, ℙ, ℙ̃, tt_, HT::TH, FT::TF, CT) where {TH, TF}
+    function Message(::RK4, ℙ, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
         tt = collect(tt_)
         N = length(tt)
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
-        _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
-        Message(ℙ, ℙ̃, tt, Ht, Ft, C)
+        _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), hT)
+        new{Bridge.valtype(ℙ), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
  
-    function Message(D::DE, ℙ, ℙ̃, tt_, HT::TH, FT::TF, CT) where {TH, TF}
+    function Message(D::DE, ℙ, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
         tt = collect(tt_)
         N = length(tt)
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
-        _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Ht, Ft), (HT, FT, CT))
-        new{eltype(Ft), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
+        _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Ht, Ft), hT)
+        new{Bridge.valtype(ℙ), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
     end
 end
 
-mutable struct Chain
-    Ms::Vector{Message}
-    Ps::Vector{PathInnovation}
-    Msᵒ::Vector{Message}
-    Psᵒ::Vector{PathInnovation}
+
+mutable struct Chain{TM, TP, THtransform, Tθ}
+    Ms::Vector{TM}
+    Ps::Vector{TP}
+    Msᵒ::Vector{TM}
+    Psᵒ::Vector{TP}
     loglik::Float64
-    HFC0::Tuple
-    θs::Vector
+    HFC0::THtransform
+    θs::Vector{Tθ}
 end

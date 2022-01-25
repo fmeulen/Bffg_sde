@@ -7,10 +7,9 @@ getpar(Ms::Vector{Message}, p::ParInfo) = getpar(Ms[1].ℙ, p.names)
 
 function convert_PνC_to_HFC(P,ν,C)
     H = inv(P)
-    H, P\ν, C
+    Htransform(H, P\ν, C)
 end   
 
-HFC0(M::Message) = (M.H[1], M.F[1], M.C[1])
 
 
 """
@@ -38,12 +37,12 @@ function init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, guidingterm_
       lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], [x1_init, x1_init] )
       push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
     end
-    (H0, F0, C0), Ms = backwardfiltering(obs, timegrids, ℙ, ℙ̃s)
+    h0, Ms = backwardfiltering(obs, timegrids, ℙ, ℙ̃s)
     if guidingterm_with_x1
         add_deterministicsolution_x1!(Ms, x0)
-        (H0, F0, C0) = backwardfiltering!(Ms, obs)
+        h0 = backwardfiltering!(Ms, obs)
     end
-    (H0, F0, C0), Ms
+    h0, Ms
 end
 
 
@@ -63,7 +62,7 @@ function kernelrk4(f, t, y, dt, ℙ)
 end
 
 
-HFC(obs::Observation) = (obs.H, obs.F, obs.C)
+
 
 vectorise(P,ν, C) = vcat(SVector(P), ν, SVector(C))
 
@@ -84,16 +83,6 @@ function init_HFC(v, L, d::Int64; ϵ=0.01)
 end
 
 
-"""
-    observation_HFC(v, L, Σ)
-
-    Convert observation v ~ N(Lx, Σ)
-    to triplet  (H, F, C)
-"""
-function observation_HFC(v, L, Σ)
-    A = L' * inv(Σ)
-    A*L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v)
-end
 
 
 

@@ -26,8 +26,8 @@ function llikelihood(::LeftRule, X::SamplePath, M::Message; skip = sk)
     som 
 end
 
-logh̃(x, (H,F,C)) = -0.5 * x' * H * x + F' * x + C    
-loglik(x0, (H0,F0,C0), Ps::Vector{PathInnovation}) = logh̃(x0, (H0,F0,C0)) + sum(getfield.(Ps,:ll))
+logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x + h0.C    
+loglik(x0, h0, Ps::Vector{PathInnovation}) = logh̃(x0, h0) + sum(getfield.(Ps,:ll))
 
 """"
     forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), M, ρ; skip=sk, verbose=false)
