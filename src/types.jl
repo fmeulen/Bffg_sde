@@ -15,29 +15,6 @@ abstract type  GuidType end
 struct PCN <: GuidType  end
 struct InnovationsFixed <: GuidType end
 
-struct Obs end # for dispatch in Htransform
-struct Htransform{TH, TF, TC}
-    H::TH
-    F::TF
-    C::TC
-
-    Htransform(H::TH, F::TF, C::TC) where {TH,TF,TC} = new{TH,TF,TC}(H,F,C)
-    
-    function Htransform(M::Message) 
-        new{eltype(M.H), eltype(M.F), typeof(M.C)}(M.H[1], M.F[1], M.C)
-    end
-    """
-        Htransform(v, L, Σ)
-
-        Convert observation v ~ N(Lx, Σ)
-        to triplet (H, F, C), which is of type Htransform
-    """
-    function Htransform(::Obs, v, L, Σ)
-        A = L' * inv(Σ)
-        H, F, C = A * L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v) 
-        new{typeof(H), typeof(F), typeof(C)}(H, F, C)
-    end
-end
 
 struct ParInfo
     names::Vector{Symbol}
@@ -137,12 +114,37 @@ struct Message{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
 end
 
 
+struct Obs end # for dispatch in Htransform
+struct Htransform{TH, TF, TC}
+    H::TH
+    F::TF
+    C::TC
+
+    Htransform(H::TH, F::TF, C::TC) where {TH,TF,TC} = new{TH,TF,TC}(H,F,C)
+    
+    function Htransform(M::Message) 
+        new{eltype(M.H), eltype(M.F), typeof(M.C)}(M.H[1], M.F[1], M.C)
+    end
+    """
+        Htransform(v, L, Σ)
+
+        Convert observation v ~ N(Lx, Σ)
+        to triplet (H, F, C), which is of type Htransform
+    """
+    function Htransform(::Obs, v, L, Σ)
+        A = L' * inv(Σ)
+        H, F, C = A * L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v) 
+        new{typeof(H), typeof(F), typeof(C)}(H, F, C)
+    end
+end
+
+
 mutable struct Chain{TM, TP, THtransform, Tθ}
     Ms::Vector{TM}
     Ps::Vector{TP}
     Msᵒ::Vector{TM}
     Psᵒ::Vector{TP}
-    loglik::Float64
-    HFC0::THtransform
+    ll::Float64
+    h0::THtransform
     θs::Vector{Tθ}
 end
