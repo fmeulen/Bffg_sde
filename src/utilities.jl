@@ -1,41 +1,53 @@
 
 getfield_(P) =  (x) -> getfield(P,x)
 getpar(P, ind::Vector{Symbol}) = getfield_(P).(ind)
-getpar(𝒫::GuidedProcess, p::ParInfo) = getpar(𝒫.ℙ, p.names)
-getpar(𝒫s::Vector{GuidedProcess}, p::ParInfo) = getpar(𝒫s[1].ℙ, p.names)
+getpar(M::Message, p::ParInfo) = getpar(M.ℙ, p.names)
+getpar(Ms::Vector{Message}, p::ParInfo) = getpar(Ms[1].ℙ, p.names)
 
 
+function convert_PνC_to_HFC(P,ν,C)
+    H = inv(P)
+    H, P\ν, C
+end   
 
+HFC0(M::Message) = (M.H[1], M.F[1], M.C[1])
 
 
 """
     extract parameter vector from guided process
 """
-getpar(𝒫::GuidedProcess, ind::Vector{Symbol}) = getpar(𝒫.ℙ, ind::Vector{Symbol})  
+getpar(M::Message, ind::Vector{Symbol}) = getpar(M.ℙ, ind::Vector{Symbol})  
 
 
 say(what) = run(`osascript -e "say \"$(what)\""`, wait=false)
 
 lastval(X::SamplePath) = X.yy[end]
 
-lastval(ℐ::PathInnovation) = lastval(ℐ.X)
+lastval(P::PathInnovation) = lastval(P.X)
 
-function mergepaths(ℐs)
-    tt = map(x->x.X.tt, ℐs)
-    yy = map(x->x.X.yy, ℐs)
+function mergepaths(Ps)
+    tt = map(x->x.X.tt, Ps)
+    yy = map(x->x.X.yy, Ps)
     SamplePath(vcat(tt...),vcat(yy...))
 end
 
-function init_auxiliary_processes(AuxType, obs, ℙ; x1_init=-0.0)
+function init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, guidingterm_with_x1::Bool; x1_init=0.0)
     ℙ̃s = AuxType[]
     n = length(obs)
     for i in 2:n # skip x0
       lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], [x1_init, x1_init] )
       push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
     end
-    ℙ̃s
-end  
-  
+    (H0, F0, C0), Ms = backwardfiltering(obs, timegrids, ℙ, ℙ̃s)
+    if guidingterm_with_x1
+        add_deterministicsolution_x1!(Ms, x0)
+        (H0, F0, C0) = backwardfiltering!(Ms, obs)
+    end
+    (H0, F0, C0), Ms
+end
+
+
+   
 
 """
     kernelrk4(f, t, y, dt, ℙ)
@@ -120,32 +132,32 @@ end
 
 ec(x,i) = getindex.(x,i)
 
-function plot_(ℐs::Vector{PathInnovation},comp::Int)
-    p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,comp), label="")
-    for k in 2:length(ℐs)
-      plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,comp), label="")
+function plot_(Ps::Vector{PathInnovation},comp::Int)
+    p = plot(Ps[1].X.tt, ec(Ps[1].X.yy,comp), label="")
+    for k in 2:length(Ps)
+      plot!(p, Ps[k].X.tt, ec(Ps[k].X.yy,comp), label="")
     end
     p
 end
 
-function plot_(ℐs::Vector{PathInnovation},::String)
-    p = plot(ℐs[1].X.tt, ec(ℐs[1].X.yy,2) - ec(ℐs[1].X.yy,3) , label="")
-    for k in 2:length(ℐs)
-      plot!(p, ℐs[k].X.tt, ec(ℐs[k].X.yy,2) - ec(ℐs[k].X.yy,3), label="")
+function plot_(Ps::Vector{PathInnovation},::String)
+    p = plot(Ps[1].X.tt, ec(Ps[1].X.yy,2) - ec(Ps[1].X.yy,3) , label="")
+    for k in 2:length(Ps)
+      plot!(p, Ps[k].X.tt, ec(Ps[k].X.yy,2) - ec(Ps[k].X.yy,3), label="")
     end
     p
 end
 
 
 
-function plot_all(ℐs::Vector{PathInnovation})
-    p1 = plot_(ℐs,1)
-    p2 = plot_(ℐs,2)
-    p3 = plot_(ℐs,3)
-    p4 = plot_(ℐs,4)
-    p5 = plot_(ℐs,5)
-    p6 = plot_(ℐs,6)
-    p2_3 = plot_(ℐs,"23")
+function plot_all(Ps::Vector{PathInnovation})
+    p1 = plot_(Ps,1)
+    p2 = plot_(Ps,2)
+    p3 = plot_(Ps,3)
+    p4 = plot_(Ps,4)
+    p5 = plot_(Ps,5)
+    p6 = plot_(Ps,6)
+    p2_3 = plot_(Ps,"23")
     l = @layout [a b c ; d e f; g]
     plot(p1, p2, p3, p4, p5, p6, p2_3, layout=l)
 end
@@ -177,23 +189,23 @@ end
 
 
 
-function plotboth(X::SamplePath, ℐs::Vector{PathInnovation}, comp)
+function plotboth(X::SamplePath, Ps::Vector{PathInnovation}, comp)
     p1 = plot(X.tt, getindex.(X.yy,comp), label="",color="grey")
-    for k in 1:length(ℐs)
-        plot!(p1, ℐs[k].X.tt, ec(ℐs[k].X.yy,comp), label="")
+    for k in 1:length(Ps)
+        plot!(p1, Ps[k].X.tt, ec(Ps[k].X.yy,comp), label="")
     end
     p1
 end
 
-function plot_all(X::SamplePath, obstimes, obsvals,ℐs::Vector{PathInnovation})
-    p1 = plotboth(X, ℐs, 1)
-    p2 = plotboth(X, ℐs, 2)
-    p3 = plotboth(X, ℐs, 3)
-    p4 = plotboth(X, ℐs, 4)
-    p5 = plotboth(X, ℐs, 5)
-    p6 = plotboth(X, ℐs, 6)
+function plot_all(X::SamplePath, obstimes, obsvals,Ps::Vector{PathInnovation})
+    p1 = plotboth(X, Ps, 1)
+    p2 = plotboth(X, Ps, 2)
+    p3 = plotboth(X, Ps, 3)
+    p4 = plotboth(X, Ps, 4)
+    p5 = plotboth(X, Ps, 5)
+    p6 = plotboth(X, Ps, 6)
     
-    p2_3 = plot_(ℐs,"23")
+    p2_3 = plot_(Ps,"23")
     p2_3 = plot!(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="", color="grey")
     plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=1.5, label="")
     
@@ -202,3 +214,27 @@ function plot_all(X::SamplePath, obstimes, obsvals,ℐs::Vector{PathInnovation})
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end
 
+
+# X = Xf1
+# p1 = plot(X.tt, getindex.(X.yy,1), label="")
+# p2 = plot(X.tt, getindex.(X.yy,2), label="")
+# p3 = plot(X.tt, getindex.(X.yy,3), label="")
+# p4 = plot(X.tt, getindex.(X.yy,4), label="")
+# p5 = plot(X.tt, getindex.(X.yy,5), label="")
+# p6 = plot(X.tt, getindex.(X.yy,6), label="")
+# X = Xf2
+# plot!(p1, X.tt, getindex.(X.yy,1), label="")
+# plot!(p2, X.tt, getindex.(X.yy,2), label="")
+# plot!(p3, X.tt, getindex.(X.yy,3), label="")
+# plot!(p4, X.tt, getindex.(X.yy,4), label="")
+# plot!(p5, X.tt, getindex.(X.yy,5), label="")
+# plot!(p6, X.tt, getindex.(X.yy,6), label="")
+
+
+
+
+
+# p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="")
+# plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=1.5, label="")
+# l = @layout [a b c; d e f]
+# plot(p1,p2,p3,p4,p5,p6, layout=l)

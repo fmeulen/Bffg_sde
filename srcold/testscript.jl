@@ -237,3 +237,84 @@ keys = (:a, :b, :c); values = (1, 2, 3);
 (; zip(keys, values)...)
 
 (; zip(pars.names, SA[1 2 3])...)
+
+
+
+
+# this function won't change either tup or vec
+function test!(tup, vec)
+    tup_ = (1,2)
+    vec_ = [1, 2]
+    vec = vec_
+    tup = tup_
+end
+
+# small adjustement
+function test1!(tup, vec)
+    tup_ = (1,2)
+    vec_ = [1, 2]
+    vec = vec_
+    tup = tup_
+    tup, vec
+end
+
+
+function test2!(tup, vec)
+    tup_ = (1,2)
+    vec_ = [1, 2]
+    vec, vec_ = vec_, vec
+    tup, tup_ = tup_, tup
+end
+
+
+
+
+tup = (20,30)
+vec = [20,30]
+ismutable(tup)
+ismutable(vec)
+test!(tup,vec)
+tup
+vec
+
+tup, vec = test1!(tup,vec)
+tup
+vec
+
+
+test2!(tup,vec)
+tup
+vec
+
+
+
+function test3!(tup, vec)
+    tup_ = (1,2)
+    vec_ = [1, 2]
+    vec, vec_ = vec_, vec
+    tup, tup_ = tup_, tup
+    tup, vec
+end
+
+tup = (20,30)
+vec = [20,30]
+tup, vec = test3!(tup,vec)
+tup
+vec
+
+
+mutable struct WWW
+    t
+    v
+    T
+    V
+end
+
+function test4!(w::WWW)
+    w.t, w.T = w.T, w.t
+    w.v, w.V = w.V, w.v
+end
+
+w = WWW((20,30), [20,30], (2,3), [2,3])
+test4!(w)
+w
