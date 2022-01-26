@@ -318,3 +318,31 @@ end
 w = WWW((20,30), [20,30], (2,3), [2,3])
 test4!(w)
 w
+
+
+
+struct LL
+    a
+    b
+end
+
+L = LL([1,2], (1,2))
+
+using Setfield
+function upd(L)
+    a, b = L.a, L.b
+    @set! b=5
+    a *= 10
+    LL(a,b)
+end
+
+Lnew = upd(L)
+
+function up!(x)
+    for i in eachindex(x)
+        x[i] +=2
+    end
+end
+
+x = [2, 3, 6,7]
+up!(x)

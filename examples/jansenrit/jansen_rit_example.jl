@@ -148,8 +148,9 @@ parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 # pars = ParInfo([:C, :μy, :σy], [false, true, true])
 # tuningpars = [15.0, 10.0, 10.0]
 
-pars = ParInfo([:C], [false])
-tuningpars = [15.0]
+
+
+
 #tup = (; zip(pars.names, SA[1.0])...)  # make named tuple 
 
 #  pars = ParInfo([:C, :μy], [false, true])
@@ -158,14 +159,34 @@ tuningpars = [15.0]
 
 
 # initialisation
-ℙinit = setproperties(ℙ, (C=500.0, σy=40000.0))   # C=100.0, μy=100.0) 
+ℙinit = setproperties(ℙ, (C=50.0))   # C=100.0, μy=100.0) 
+
+pars = ParInfo([:C], [false])
+tuningpars = [20.0]
+
 
 #Profile.init() 
 #ProfileView.@profview 
-
 parup = true
-XX, θs, Ps, lls, (accpar, accinnov) =   parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
-                skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);    
+
+Random.seed!(3)
+@time XX, θs, S, lls, (accpar, accinnov), θse, Se, llse = 
+parinf_new(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit ; 
+skip_it = 100, iterations=2500, verbose=true, parupdating=parup);   
+
+#@enter parinf_new(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit ; skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);   
+
+Random.seed!(3)
+@time  XX, θs, Ps, lls, (accpar, accinnov) =   parinf_old(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
+                 skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);    
+
+
+    pC = plot(map(x->x[1], θs), label="C target")
+    Plots.abline!(pC,  0.0, ℙ.C ,label="true value")
+    plot!(pC, map(x->x[1], θse), label="C exploring")
+    
+    
+                 
 
 
 pP =  plot_all(Ps)

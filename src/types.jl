@@ -69,6 +69,28 @@ struct PathInnovation{TX, TW, Tll}
     end
 end
 
+struct Obs end # for dispatch in Htransform
+struct Htransform{TH, TF, TC}
+    H::TH
+    F::TF
+    C::TC
+
+    Htransform(H::TH, F::TF, C::TC) where {TH,TF,TC} = new{TH,TF,TC}(H,F,C)
+    
+    """
+        Htransform(v, L, Σ)
+
+        Convert observation v ~ N(Lx, Σ)
+        to triplet (H, F, C), which is of type Htransform
+    """
+    function Htransform(::Obs, v, L, Σ)
+        A = L' * inv(Σ)
+        H, F, C = A * L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v) 
+        new{typeof(H), typeof(F), typeof(C)}(H, F, C)
+    end
+
+end
+
 
 """
     Message
@@ -114,37 +136,49 @@ struct Message{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
 end
 
 
-struct Obs end # for dispatch in Htransform
-struct Htransform{TH, TF, TC}
-    H::TH
-    F::TF
-    C::TC
-
-    Htransform(H::TH, F::TF, C::TC) where {TH,TF,TC} = new{TH,TF,TC}(H,F,C)
-    
-    function Htransform(M::Message) 
-        new{eltype(M.H), eltype(M.F), typeof(M.C)}(M.H[1], M.F[1], M.C)
-    end
-    """
-        Htransform(v, L, Σ)
-
-        Convert observation v ~ N(Lx, Σ)
-        to triplet (H, F, C), which is of type Htransform
-    """
-    function Htransform(::Obs, v, L, Σ)
-        A = L' * inv(Σ)
-        H, F, C = A * L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v) 
-        new{typeof(H), typeof(F), typeof(C)}(H, F, C)
-    end
+function Htransform(M::Message) 
+    Htransform(M.H[1], M.F[1], M.C)
 end
 
 
-mutable struct Chain{TM, TP, THtransform, Tθ}
+struct ChainState{TM, TP, THtransform, Tθ}
     Ms::Vector{TM}
     Ps::Vector{TP}
     Msᵒ::Vector{TM}
     Psᵒ::Vector{TP}
     ll::Float64
     h0::THtransform
-    θs::Vector{Tθ}
+    θ::Tθ
+
+    ChainState(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)  = new{eltype(Ms),eltype(Ps),typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+    
+
+    function ChainState(ρ::Float64, timegrids, obs, ℙ, x0, pars, guidingterm_with_x1; AuxType=JansenRitDiffusionAux)
+        ℙ̃s = AuxType[]
+        n = length(obs)
+        for i in 2:n # skip x0
+          lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], zeros(2) )
+          push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
+        end
+        h0, Ms = backwardfiltering(obs, timegrids, ℙ, ℙ̃s)
+        if guidingterm_with_x1
+            add_deterministicsolution_x1!(Ms, x0)
+            h0 = backwardfiltering!(Ms, obs)
+        end
+        
+        ρs = fill(ρ, length(timegrids))    
+        Ps = forwardguide(x0, Ms, ρs);
+        ll = loglik(x0, h0, Ps)
+        θ = getpar(Ms, pars)
+        Psᵒ = deepcopy(Ps) 
+        Msᵒ = deepcopy(Ms)
+        new{eltype(Ms), eltype(Ps), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+    end
 end
+
+# import Base.show
+# Base.show(io::IO, S::ChainState)
+#     print(io, S.Ms)
+#     println()
+#     print(io, S.θ)
+# end

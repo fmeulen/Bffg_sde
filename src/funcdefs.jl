@@ -180,8 +180,103 @@ function parupdate!(Msᵒ::Vector{Message}, θ, pars::ParInfo,  tuningpars)
     θᵒ
 end
 
+
+
+function parinf_new(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ; 
+    parupdating=true, guidingterm_with_x1=false, 
+    iterations = 300, skip_it = 10, verbose=true, AuxType=JansenRitDiffusionAux)
+
+    
+    S = ChainState(ρ, timegrids, obs, ℙ, x0, pars, guidingterm_with_x1; AuxType=AuxType);
+    
+    steep = true
+    temperature = 5.0
+    steep && ( ℙe = setproperties(ℙ, (σy=temperature*ℙ.σy))  )
+    steep && (Se = ChainState(ρ, timegrids, obs, ℙe, x0, pars, guidingterm_with_x1; AuxType=AuxType);  )
+#@enter update(S, recomp, pars, tuningpars, true, false)
+    tuningparse = 5* tuningpars
+
+    # saving iterates
+    subsamples = 0:skip_it:iterations # for saving paths
+    XX = [mergepaths(Ps)]
+    θs = [getpar(S.Ms, pars)]
+    lls = [S.ll]
+    steep && (θse = [getpar(Se.Ms, pars)]  )
+    steep && (llse = [Se.ll]  )
+
+    recomp = maximum(pars.recomputeguidingterm) # if true, then for par updating the guiding term needs to be recomputed
+
+    accinnov = 0; accpar = 0 
+    accinnove = 0; accpare = 0 
+    for iter in 1:iterations  
+        S, lls_, accinnov_, accpar_ = update(S, recomp, x0, pars, tuningpars, parupdating, verbose)
+        accpar += accpar_
+        accinnov += accinnov_
+        push!(θs, copy(S.θ)) 
+        push!(lls, lls_...)
+
+        if steep
+            Se, lls_e, accinnov_e, accpar_e = update(Se, recomp, x0, pars, tuningparse, parupdating, verbose)
+            accpare += accpar_e
+            accinnove += accinnov_e
+            push!(θse, copy(Se.θ)) 
+            push!(llse, lls_e...)
+        end
+        (iter in subsamples) && println(iter)
+        (iter in subsamples) && push!(XX, mergepaths(S.Ps))
+        adjust_PNCparamters!(S.Psᵒ, ρ) # FIXME
+    end
+    println("acceptance percentage parameter: ", 100*accpar/iterations)
+    println("acceptance percentage innovations: ", 100*accinnov/iterations)
+    XX, θs, S, lls, (accpar=accpar, accinnov=accinnov), θse, Se, llse
+end
+
+
+
+function update(S, recomp, x0, pars, tuningpars, parupdating, verbose)
+    Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ = S.Ms, S.Ps, S.Msᵒ, S.Psᵒ, S.ll, S.h0, S.θ
+    
+    accinnov_ = 0 ; accpar_ =0
+    forwardguide!(PCN(), Psᵒ, Ps, Ms, x0)
+    llᵒ  = loglik(x0, h0, Psᵒ)
+    dll = llᵒ - ll
+    !verbose && print("Innovations-PCN update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+    if log(rand()) < dll   
+        Ps, Psᵒ = Psᵒ,  Ps
+        ll = llᵒ
+        !verbose && print("✓")    
+        accinnov_ = 1 
+    end 
+    lls_ = [ll]
+
+    if parupdating
+        θᵒ =  parupdate!(Msᵒ, θ, pars, tuningpars)
+        if recomp                # recomp guiding term if at least one parameter requires recomputing the guiding term
+            h0ᵒ = backwardfiltering!(Msᵒ, obs) 
+        else
+            h0ᵒ = h0
+        end # so whatever Msᵒ was, it got updated by a new value of θ and all other fields are consistent
+        forwardguide!(InnovationsFixed(), Psᵒ, Ps, Msᵒ, x0)  # whatever Psᵒ was, using innovations from Ps and Msᵒ we guide forwards
+        llᵒ  = loglik(x0, h0ᵒ, Psᵒ) # if guiding term need not be recomputed
+        dll = llᵒ - ll 
+        !verbose && print("Parameter update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+        if  log(rand()) < dll && (getpar(Msᵒ, pars)[1]>10.0)  
+            θ = θᵒ
+            Ms, Msᵒ = Msᵒ, Ms
+            Ps, Psᵒ = Psᵒ,  Ps
+            ll = llᵒ
+            h0 = h0ᵒ
+            !verbose && print("✓")  
+            accpar_ = 1 
+        end   
+        push!(lls_, ll)
+    end
+    ChainState(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ), lls_, accinnov_, accpar_
+end
+
+
    
-function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ; 
+function parinf_old(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ; 
                         parupdating=true, guidingterm_with_x1=false, 
                         iterations = 300, skip_it = 10, verbose=false, AuxType=JansenRitDiffusionAux)
     # initialisation
@@ -201,19 +296,13 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
     θs = [θ]
     lls = [ll]
 
-    #ch = Chain(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θs);
-
     recomp = maximum(pars.recomputeguidingterm) # if true, then for par updating the guiding term needs to be recomputed
 
     accinnov = 0; accpar = 0 
     for iter in 1:iterations  
-         θ, Ms, Ps, lls_, h0, accinnov_, accpar_ = update!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0,obs,  recomp, tuningpars;
+         θ, Ms, Ps, lls_, h0, accinnov_, accpar_ = update_old!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0,obs,  recomp, tuningpars;
                               verbose=verbose, parupdating=parupdating)
          ll = last(lls_)
-        
-        # new attempt    
-        # lls_, accinnov_, accpar_ = update!(ch, x0, obs, recomp, tuningpars; verbose=verbose, parupdating=parupdating)
-
 
         accpar += accpar_
         accinnov += accinnov_
@@ -233,7 +322,7 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
 
 
 
-  function update!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0, obs, recomp, tuningpars; verbose=false, parupdating=true)
+  function update_old!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0, obs, recomp, tuningpars; verbose=false, parupdating=true)
     accinnov_ = 0 ; accpar_ =0
     forwardguide!(PCN(), Psᵒ, Ps, Ms, x0)
     llᵒ  = loglik(x0, h0, Psᵒ)
@@ -273,48 +362,6 @@ function parinf(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ;
 end
 
 
-
-
-function update!(ch, x0, obs,  recomp, tuningpars; verbose=verbose, parupdating=parupdating)
-    accinnov_ = 0 ; accpar_ =0
-    θ = last(ch.θs)
-    forwardguide!(PCN(), ch.Psᵒ, ch.Ps, ch.Ms, x0)
-    llᵒ  = loglik(x0, ch.h0, ch.Psᵒ)
-    dll = llᵒ - ch.ll
-    !verbose && print("Innovations-PCN update. ll $ch.ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
-    if log(rand()) < dll   
-        ch.Ps, ch.Psᵒ = ch.Psᵒ, ch.Ps
-        ch.ll = llᵒ
-        !verbose && print("✓")    
-        accinnov_ = 1 
-    end 
-    lls_ = [ch.ll]
-
-    if parupdating
-        θᵒ =  parupdate!(ch.Msᵒ, θ, pars, tuningpars)
-        if recomp                # recomp guiding term if at least one parameter requires recomputing the guiding term
-            h0ᵒ = backwardfiltering!(ch.Msᵒ, obs) 
-        else
-            h0ᵒ = h0
-        end # so whatever Msᵒ was, it got updated by a new value of θ and all other fields are consistent
-        forwardguide!(InnovationsFixed(), ch.Psᵒ, ch.Ps, ch.Msᵒ, x0)  # whatever Psᵒ was, using innovations from Ps and Msᵒ we guide forwards
-        llᵒ  = loglik(x0, h0ᵒ, ch.Psᵒ) # if guiding term need not be recomputed
-        dll = llᵒ - ch.ll 
-        !verbose && print("Parameter update. ll $ch.ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
-        if  log(rand()) < dll && (getpar(ch.Msᵒ, pars)[1]>10.0)  
-            push!(ch.θs, θᵒ)
-            ch.Ms, ch.Msᵒ = ch.Msᵒ, ch.Ms
-            ch.Ps, ch.Psᵒ = ch.Psᵒ, ch.Ps
-            ch.ll = llᵒ
-            ch.h0 = h0ᵒ
-            !verbose && print("✓")  
-            accpar_ = 1 
-        end   
-        push!(lls_, ch.ll)
-    end
-
-     lls_, accinnov_, accpar_
-end
 
 
 
