@@ -27,8 +27,9 @@ function llikelihood(::LeftRule, X::SamplePath, M::Message; skip = sk)
 end
 
 logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x + h0.C    
-loglik(x0, h0, Ps::Vector{PathInnovation}) = logh̃(x0, h0) + sum(getfield.(Ps,:ll))
-
+function loglik(x0, h0, Ps::Vector)
+     logh̃(x0, h0) + sum(getfield.(Ps,:ll))
+end
 """"
     forwardguide!((X, W, ll), (Xᵒ, Wᵒ, Wbuffer), M, ρ; skip=sk, verbose=false)
 
@@ -69,11 +70,11 @@ end
     Funtion returns a  vector of PathInnovation objects, one for each segment
 """
 
-function forwardguide(x0, Ms::Vector{Message}, ρs)
+function forwardguide(x0, Ms::Vector{Message})
     xend = x0
     Ps = PathInnovation[]
     for i ∈ eachindex(Ms)
-        push!(Ps, PathInnovation(xend, Ms[i], ρs[i]))
+        push!(Ps, PathInnovation(xend, Ms[i]))
         xend = lastval(Ps[i])
     end
     Ps
@@ -81,36 +82,38 @@ end
 
 
 """
-    forwardguide!(::InnovationsFixed, Pᵒ::PathInnovation,  P::PathInnovation, M::Message, x0)     
+    forwardguide!(::InnovationsFixed, Pᵒ::PathInnovationProposal,  P::PathInnovation, M::Message, x0)     
 
     Using GuidedProposal M and innovations extracted from the W-field of P, simulate a guided process starting in x0, write into
     Pᵒ, whos `X` and `W` field are overwritten.
 
     Returns last value of simulated path, as also likelihood of this path
 """
-function forwardguide!(::InnovationsFixed, Pᵒ::PathInnovation,  P::PathInnovation, M::Message, x0)    
+function forwardguide!(::InnovationsFixed, Pᵒ::PathInnovationProposal,  P::PathInnovation, M::Message, x0)    
     Pᵒ.W.yy .= P.W.yy
     solve!(Euler(), Pᵒ.X, x0, P.W, M)
     llᵒ = llikelihood(Bridge.LeftRule(), Pᵒ.X, M, skip=sk)
     lastval(Pᵒ), llᵒ
 end
 
-function forwardguide!(::PCN, Pᵒ::PathInnovation,  P::PathInnovation, M::Message, x0)    
+compl(x) = sqrt(1.0-x^2)
+
+function forwardguide!(::PCN, Pᵒ::PathInnovationProposal,  P::PathInnovation, M::Message, x0)    
     sample!(Pᵒ.Wbuf, wienertype(M.ℙ))
     ρ = Pᵒ.ρ
-    Pᵒ.W.yy .= ρ * P.W.yy + sqrt(1.0-ρ^2)*Pᵒ.Wbuf.yy
+    Pᵒ.W.yy .= ρ * P.W.yy + compl(ρ) * Pᵒ.Wbuf.yy
     solve!(Euler(), Pᵒ.X, x0, Pᵒ.W, M)
     llᵒ = llikelihood(Bridge.LeftRule(), Pᵒ.X, M, skip=sk)
     lastval(Pᵒ), llᵒ
 end
 
 """
-    forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovation}, Ps::Vector{PathInnovation}, Ms::Vector{Message}, x0)
+    forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovationProposal}, Ps::Vector{PathInnovation}, Ms::Vector{Message}, x0)
 
     Using a vector of guided process, simulate a new path on all segments. 
     The elements of Psᵒ get overwritten and hence possibly change. 
 """
-function forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovation}, Ps::Vector{PathInnovation}, Ms::Vector{Message}, x0)
+function forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovationProposal{TX,TW,Tll}}, Ps::Vector{PathInnovation}, Ms::Vector{Message}, x0) where {TX, TW, Tll}
     x_ = x0  
     xend = 0.0*x0 ; 
     #llᴼ = 0.0 

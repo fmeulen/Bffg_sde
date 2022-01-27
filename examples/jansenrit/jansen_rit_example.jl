@@ -34,6 +34,7 @@ include("jansenrit3.jl")
 
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/types.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/forwardguiding.jl")
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/backwardfiltering.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/funcdefs.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 
@@ -92,13 +93,13 @@ for i ∈ eachindex(obsvals)
 end
 obs[1] = Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))
 
-timegrids = set_timegrids(obs, 0.00005)
+timegrids = set_timegrids(obs, 0.0005)
 ρ = 0.95
 ρs = fill(ρ, length(timegrids))
 
 #------- Backwards filtering, Forwards guiding initialisation
 h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, false);
-Ps = forwardguide(x0, Ms, ρs);
+Ps = forwardguide(x0, Ms);
 
 plot_all(Ps)
 savefig(joinpath(outdir,"guidedinitial.png"))
@@ -119,7 +120,7 @@ savefig(joinpath(outdir,"forward_guided_initial_overlaid.png"))
 
 # backward filter with deterministic solution for x1 in β
 h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, true);
-Ps = forwardguide(x0, Ms, ρs);
+Ps = forwardguide(x0, Ms);
 
 pg = plot_all(Ps)
 plot(pf, pg, layout=l)
@@ -142,8 +143,6 @@ savefig(joinpath(outdir,"deviations_guidedinitial_withx1deterministic.png"))
 
 
 # proposals
-ρ = 0.99
-parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 
 # pars = ParInfo([:C, :μy, :σy], [false, true, true])
 # tuningpars = [15.0, 10.0, 10.0]
@@ -159,10 +158,16 @@ parameterkernel(θ, tuningpars) = θ + rand(MvNormal(tuningpars))
 
 
 # initialisation
-ℙinit = setproperties(ℙ, (C=50.0))   # C=100.0, μy=100.0) 
+ℙinit = setproperties(ℙ, (C=500.0))   # C=100.0, μy=100.0) 
 
 pars = ParInfo([:C], [false])
-tuningpars = [20.0]
+ρ = 0.99
+
+
+
+
+Ke = parameterkernel((short=[5.0], long=[70.0]))  # for exploring chain
+K = parameterkernel((short=[5.0], long=[40.0]); s=0.0)   # local proposals for targeting chain
 
 
 #Profile.init() 
@@ -170,23 +175,25 @@ tuningpars = [20.0]
 parup = true
 
 Random.seed!(3)
+temperature = 10.0
 @time XX, θs, S, lls, (accpar, accinnov), θse, Se, llse = 
-parinf_new(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit ; 
-skip_it = 100, iterations=2500, verbose=true, parupdating=parup);   
+inference(obs, timegrids, x0, pars, K, Ke, ρ, ℙinit, temperature ; 
+skip_it = 500, iterations=1000, verbose=true, parupdating=parup);   
 
 #@enter parinf_new(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit ; skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);   
 
 Random.seed!(3)
-@time  XX, θs, Ps, lls, (accpar, accinnov) =   parinf_old(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
-                 skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);    
+#@time  XX, θs, Ps, lls, (accpar, accinnov) =   parinf_old(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
+ #                skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);    
 
 
     pC = plot(map(x->x[1], θs), label="C target")
     Plots.abline!(pC,  0.0, ℙ.C ,label="true value")
     plot!(pC, map(x->x[1], θse), label="C exploring")
+    histogram(map(x->x[1], θse),bins=35)
     
-    
-                 
+    p = plot(lls, label="target")    
+    plot!(p, llse, label="exploring")  
 
 
 pP =  plot_all(Ps)

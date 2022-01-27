@@ -6,7 +6,7 @@ struct DE{T} <: Solver
 end
 
 struct Adaptive <: Solver end
-    struct AssumedDensityFiltering{T} <: Solver 
+struct AssumedDensityFiltering{T} <: Solver 
     solvertype::T
 end
 
@@ -54,20 +54,40 @@ struct PathInnovation{TX, TW, Tll}
     X::TX
     W::TW
     ll::Tll
-    Wbuf::TW
-    ρ::Float64
-    PathInnovation(X::TX, W::TW, ll::Tll, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
-    new{TX,TW,Tll}(X, W, ll, Wbuf, ρ)
+    PathInnovation(X::TX, W::TW, ll::Tll) where {TX, TW, Tll} =
+    new{TX,TW,Tll}(X, W, ll)
 
-    function PathInnovation(x0, M, ρ)
+    function PathInnovation(x0, M)
         tt = M.tt
         W = sample(tt, wienertype(M.ℙ))    
         X = solve(Euler(), x0, W, M)  # allocation        
         ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
-        Wbuf = deepcopy(W)
-        new{typeof(X), typeof(W), typeof(ll)}(X, W, ll, Wbuf, ρ)
+        new{typeof(X), typeof(W), typeof(ll)}(X, W, ll)
     end
 end
+
+
+struct PathInnovationProposal{TX, TW, Tll}
+    X::TX
+    W::TW
+    ll::Tll
+    Wbuf::TW
+    ρ::Float64
+    PathInnovationProposal(X::TX, W::TW, ll::Tll, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
+    new{TX,TW,Tll}(X, W, ll, Wbuf, ρ)
+
+    function PathInnovationProposal(x0, M, ρ, P::PathInnovation)
+        tt = M.tt
+        W = sample(tt, wienertype(M.ℙ))    
+        X = solve(Euler(), x0, W, M)  # allocation        
+        ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
+        Wbuf = deepcopy(P.W)
+        new{typeof(X), typeof(W), typeof(ll)}(P.X, P.W, P.ll, Wbuf, ρ)
+    end
+end
+
+PathInnovation(P::PathInnovationProposal) = PathInnovation(P.X, P.W, P.ll)
+
 
 struct Obs end # for dispatch in Htransform
 struct Htransform{TH, TF, TC}
@@ -141,16 +161,16 @@ function Htransform(M::Message)
 end
 
 
-struct ChainState{TM, TP, THtransform, Tθ}
+struct ChainState{TM, TP, TPᵒ, THtransform, Tθ}
     Ms::Vector{TM}
     Ps::Vector{TP}
     Msᵒ::Vector{TM}
-    Psᵒ::Vector{TP}
+    Psᵒ::Vector{TPᵒ}
     ll::Float64
     h0::THtransform
     θ::Tθ
 
-    ChainState(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)  = new{eltype(Ms),eltype(Ps),typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+    ChainState(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)  = new{eltype(Ms),eltype(Ps), eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
     
 
     function ChainState(ρ::Float64, timegrids, obs, ℙ, x0, pars, guidingterm_with_x1; AuxType=JansenRitDiffusionAux)
@@ -167,12 +187,12 @@ struct ChainState{TM, TP, THtransform, Tθ}
         end
         
         ρs = fill(ρ, length(timegrids))    
-        Ps = forwardguide(x0, Ms, ρs);
+        Ps = forwardguide(x0, Ms);
         ll = loglik(x0, h0, Ps)
         θ = getpar(Ms, pars)
-        Psᵒ = deepcopy(Ps) 
+        Psᵒ = [PathInnovationProposal(x0, Ms[i], ρs[i], Ps[i]) for i ∈ eachindex(Ps)] 
         Msᵒ = deepcopy(Ms)
-        new{eltype(Ms), eltype(Ps), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+        new{eltype(Ms), eltype(Ps),  eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
     end
 end
 

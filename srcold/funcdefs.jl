@@ -468,3 +468,112 @@ end
 
 
 
+
+
+
+
+
+function parinf_old(obs, timegrids, x0, pars, tuningpars, ρ, ℙ ; 
+    parupdating=true, guidingterm_with_x1=false, 
+    iterations = 300, skip_it = 10, verbose=false, AuxType=JansenRitDiffusionAux)
+# initialisation
+ρs = fill(ρ, length(timegrids))    
+h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, ℙ, x0, guidingterm_with_x1);
+Ps = forwardguide(x0, Ms, ρs);
+ll = loglik(x0, h0, Ps)
+θ = getpar(Ms, pars)
+
+# containers
+Psᵒ = deepcopy(Ps) 
+Msᵒ = deepcopy(Ms)
+
+# saving iterates
+subsamples = 0:skip_it:iterations # for saving paths
+XX = [mergepaths(Ps)]
+θs = [θ]
+lls = [ll]
+
+recomp = maximum(pars.recomputeguidingterm) # if true, then for par updating the guiding term needs to be recomputed
+
+accinnov = 0; accpar = 0 
+for iter in 1:iterations  
+θ, Ms, Ps, lls_, h0, accinnov_, accpar_ = update_old!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0,obs,  recomp, tuningpars;
+          verbose=verbose, parupdating=parupdating)
+ll = last(lls_)
+
+accpar += accpar_
+accinnov += accinnov_
+push!(θs, copy(θ)) 
+push!(lls, lls_...)
+(iter in subsamples) && println(iter)
+(iter in subsamples) && push!(XX, mergepaths(Ps))
+
+adjust_PNCparamters!(Psᵒ, ρ)
+end
+println("acceptance percentage parameter: ", 100*accpar/iterations)
+println("acceptance percentage innovations: ", 100*accinnov/iterations)
+XX, θs, Ps, lls, (accpar=accpar, accinnov=accinnov)
+end
+
+
+
+
+
+function update_old!(θ, Ms, Ps, Msᵒ, Psᵒ, ll, h0, x0, obs, recomp, tuningpars; verbose=false, parupdating=true)
+accinnov_ = 0 ; accpar_ =0
+forwardguide!(PCN(), Psᵒ, Ps, Ms, x0)
+llᵒ  = loglik(x0, h0, Psᵒ)
+dll = llᵒ - ll
+!verbose && print("Innovations-PCN update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+if log(rand()) < dll   
+Ps, Psᵒ = Psᵒ,  Ps
+ll = llᵒ
+!verbose && print("✓")    
+accinnov_ = 1 
+end 
+lls_ = [ll]
+
+if parupdating
+θᵒ =  parupdate!(Msᵒ, θ, pars, tuningpars)
+if recomp                # recomp guiding term if at least one parameter requires recomputing the guiding term
+h0ᵒ = backwardfiltering!(Msᵒ, obs) 
+else
+h0ᵒ = h0
+end # so whatever Msᵒ was, it got updated by a new value of θ and all other fields are consistent
+forwardguide!(InnovationsFixed(), Psᵒ, Ps, Msᵒ, x0)  # whatever Psᵒ was, using innovations from Ps and Msᵒ we guide forwards
+llᵒ  = loglik(x0, h0ᵒ, Psᵒ) # if guiding term need not be recomputed
+dll = llᵒ - ll 
+!verbose && print("Parameter update. ll $ll $llᵒ, diff_ll: ",round(dll;digits=3)) 
+if  log(rand()) < dll && (getpar(Msᵒ, pars)[1]>10.0)  
+θ = θᵒ
+Ms, Msᵒ = Msᵒ, Ms
+Ps, Psᵒ = Psᵒ,  Ps
+ll = llᵒ
+h0 = h0ᵒ
+!verbose && print("✓")  
+accpar_ = 1 
+end   
+push!(lls_, ll)
+end
+θ, Ms, Ps, lls_, h0, accinnov_, accpar_
+end
+
+
+
+
+
+function checkcorrespondence(P::PathInnovation, M::Message)
+X, W  =  P.X, P.W
+ll0 = P.ll
+
+x_ = X.yy[1]
+solve!(Euler(),X, x_, W, M)
+ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
+
+println("paths consistent?", X==P.X)
+println("ll consistent?", abs(ll-ll0) <10e-7)
+println(ll-ll0)
+end
+
+
+

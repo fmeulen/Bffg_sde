@@ -22,7 +22,7 @@ say(what) = run(`osascript -e "say \"$(what)\""`, wait=false)
 
 lastval(X::SamplePath) = X.yy[end]
 
-lastval(P::PathInnovation) = lastval(P.X)
+lastval(P::Union{PathInnovation, PathInnovationProposal}) = lastval(P.X)
 
 function mergepaths(Ps)
     tt = map(x->x.X.tt, Ps)
