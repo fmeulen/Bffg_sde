@@ -54,8 +54,7 @@ struct PathInnovation{TX, TW, Tll}
     X::TX
     W::TW
     ll::Tll
-    PathInnovation(X::TX, W::TW, ll::Tll) where {TX, TW, Tll} =
-    new{TX,TW,Tll}(X, W, ll)
+    PathInnovation(X::TX, W::TW, ll::Tll) where {TX, TW, Tll} = new{TX,TW,Tll}(X, W, ll)
 
     function PathInnovation(x0, M)
         tt = M.tt
@@ -76,17 +75,16 @@ struct PathInnovationProposal{TX, TW, Tll}
     PathInnovationProposal(X::TX, W::TW, ll::Tll, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
     new{TX,TW,Tll}(X, W, ll, Wbuf, ρ)
 
-    function PathInnovationProposal(x0, M, ρ, P::PathInnovation)
-        tt = M.tt
-        W = sample(tt, wienertype(M.ℙ))    
-        X = solve(Euler(), x0, W, M)  # allocation        
-        ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
-        Wbuf = deepcopy(P.W)
-        new{typeof(X), typeof(W), typeof(ll)}(P.X, P.W, P.ll, Wbuf, ρ)
+    function PathInnovationProposal(P::PathInnovation, ρ)
+       Wbuf = deepcopy(P.W)
+       W = deepcopy(P.W)
+       X = deepcopy(P.X)
+       ll = deepcopy(P.ll)
+       new{typeof(X), typeof(W), typeof(ll)}(X, W, ll, Wbuf, ρ)
     end
 end
 
-PathInnovation(P::PathInnovationProposal) = PathInnovation(P.X, P.W, P.ll)
+PathInnovation(P::PathInnovationProposal) = PathInnovation(copy(P.X), copy(P.W), P.ll)
 
 
 struct Obs end # for dispatch in Htransform
@@ -190,7 +188,8 @@ struct ChainState{TM, TP, TPᵒ, THtransform, Tθ}
         Ps = forwardguide(x0, Ms);
         ll = loglik(x0, h0, Ps)
         θ = getpar(Ms, pars)
-        Psᵒ = [PathInnovationProposal(x0, Ms[i], ρs[i], Ps[i]) for i ∈ eachindex(Ps)] 
+        Psᵒ = [PathInnovationProposal(Ps[i], ρs[i]) for i ∈ eachindex(Ps)] 
+        #Psᵒ[2].W.yy === Ps[2].W.yy 
         Msᵒ = deepcopy(Ms)
         new{eltype(Ms), eltype(Ps),  eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
     end

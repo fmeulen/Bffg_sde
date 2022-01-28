@@ -89,19 +89,21 @@ end
 
     Returns last value of simulated path, as also likelihood of this path
 """
-function forwardguide!(::InnovationsFixed, Pᵒ::PathInnovationProposal,  P::PathInnovation, M::Message, x0)    
-    Pᵒ.W.yy .= P.W.yy
-    solve!(Euler(), Pᵒ.X, x0, P.W, M)
+function forwardguide!(::InnovationsFixed, Pᵒ::PathInnovationProposal,  Wyy, M::Message, x0)    
+    Pᵒ.W.yy .= Wyy
+    solve!(Euler(), Pᵒ.X, x0, Pᵒ.W, M)
     llᵒ = llikelihood(Bridge.LeftRule(), Pᵒ.X, M, skip=sk)
     lastval(Pᵒ), llᵒ
 end
 
-compl(x) = sqrt(1.0-x^2)
+compl(x) = sqrt(1.0 - x^2)
 
-function forwardguide!(::PCN, Pᵒ::PathInnovationProposal,  P::PathInnovation, M::Message, x0)    
+function forwardguide!(::PCN, Pᵒ::PathInnovationProposal,  Wyy, M::Message, x0)    
+  #  Wyy === Pᵒ.W.yy 
     sample!(Pᵒ.Wbuf, wienertype(M.ℙ))
     ρ = Pᵒ.ρ
-    Pᵒ.W.yy .= ρ * P.W.yy + compl(ρ) * Pᵒ.Wbuf.yy
+    #Pᵒ.W.yy .= (ρ * Wyy + sqrt(1.0 -ρ^2) * Pᵒ.Wbuf.yy ) # compl(ρ) * Pᵒ.Wbuf.yy
+    Pᵒ.W.yy .= ρ * Wyy + compl(ρ) * Pᵒ.Wbuf.yy  
     solve!(Euler(), Pᵒ.X, x0, Pᵒ.W, M)
     llᵒ = llikelihood(Bridge.LeftRule(), Pᵒ.X, M, skip=sk)
     lastval(Pᵒ), llᵒ
@@ -113,12 +115,14 @@ end
     Using a vector of guided process, simulate a new path on all segments. 
     The elements of Psᵒ get overwritten and hence possibly change. 
 """
-function forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovationProposal{TX,TW,Tll}}, Ps::Vector{PathInnovation}, Ms::Vector{Message}, x0) where {TX, TW, Tll}
+#function forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovationProposal{TX,TW,Tll}}, Ps::Vector{PathInnovation}, Ms::Vector{Message}, x0) where {TX, TW, Tll}
+function forwardguide!(gt::GuidType, Psᵒ, Ps, Ms::Vector{Message}, x0) 
     x_ = x0  
     xend = 0.0*x0 ; 
-    #llᴼ = 0.0 
     for i ∈ eachindex(Ps)
-        xend, llᵒ = forwardguide!(gt, Psᵒ[i], Ps[i], Ms[i], x_) # profileview colours red on this line, especially when PCN is called
+        #println( Ps[i].W.yy[4])
+        xend, llᵒ = forwardguide!(gt, Psᵒ[i], Ps[i].W.yy, Ms[i], x_) # profileview colours red on this line, especially when PCN is called
+        #println( Ps[i].W.yy[4])
         x_ = xend
         ui = Psᵒ[i]
         @set! ui.ll = llᵒ
@@ -126,4 +130,7 @@ function forwardguide!(gt::GuidType, Psᵒ::Vector{PathInnovationProposal{TX,TW,
    end
 end
 
-
+function forwardguide!_and_ll(gt::GuidType, Psᵒ, Ps, Ms::Vector{Message}, x0, h0)
+    forwardguide!(gt, Psᵒ, Ps, Ms::Vector{Message}, x0)   
+    loglik(x0, h0, Psᵒ)
+end

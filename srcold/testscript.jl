@@ -346,3 +346,48 @@ end
 
 x = [2, 3, 6,7]
 up!(x)
+
+
+struct TT
+    a
+    b
+end
+
+TT(x::Int) = TT(x,x)
+
+t1 = TT(2,3); t2 = TT(4,5)
+tall = [t1, t2]
+arr = [TT(40,50), TT(30,70)]
+for i in 1:2
+    arr[i] = tall[i]
+end
+arr
+tall[1] =TT(100,200)
+arr
+
+
+
+
+
+struct TT
+    a
+    b
+end
+
+
+struct SS
+    a
+    b
+    c
+end
+
+t = [TT(1,2), TT(3,4)]
+s = [SS(10,20,30), SS(40,50,60)]
+
+# What we want: have `a` and `b` fields of each element in t replaced with the corresponding value in s
+TT(x::SS) = TT(x.a, x.b)
+t = TT.(s)
+t
+
+s[1] = SS(100,200,300)
+t

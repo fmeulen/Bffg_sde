@@ -121,7 +121,7 @@ end
 
 ec(x,i) = getindex.(x,i)
 
-function plot_(Ps::Vector{PathInnovation},comp::Int)
+function plot_(Ps::Vector,comp::Int)
     p = plot(Ps[1].X.tt, ec(Ps[1].X.yy,comp), label="")
     for k in 2:length(Ps)
       plot!(p, Ps[k].X.tt, ec(Ps[k].X.yy,comp), label="")
@@ -129,7 +129,7 @@ function plot_(Ps::Vector{PathInnovation},comp::Int)
     p
 end
 
-function plot_(Ps::Vector{PathInnovation},::String)
+function plot_(Ps,::String)
     p = plot(Ps[1].X.tt, ec(Ps[1].X.yy,2) - ec(Ps[1].X.yy,3) , label="")
     for k in 2:length(Ps)
       plot!(p, Ps[k].X.tt, ec(Ps[k].X.yy,2) - ec(Ps[k].X.yy,3), label="")
@@ -139,7 +139,7 @@ end
 
 
 
-function plot_all(Ps::Vector{PathInnovation})
+function plot_all(Ps::Vector)
     p1 = plot_(Ps,1)
     p2 = plot_(Ps,2)
     p3 = plot_(Ps,3)
@@ -178,7 +178,7 @@ end
 
 
 
-function plotboth(X::SamplePath, Ps::Vector{PathInnovation}, comp)
+function plotboth(X::SamplePath, Ps, comp)
     p1 = plot(X.tt, getindex.(X.yy,comp), label="",color="grey")
     for k in 1:length(Ps)
         plot!(p1, Ps[k].X.tt, ec(Ps[k].X.yy,comp), label="")
@@ -186,7 +186,7 @@ function plotboth(X::SamplePath, Ps::Vector{PathInnovation}, comp)
     p1
 end
 
-function plot_all(X::SamplePath, obstimes, obsvals,Ps::Vector{PathInnovation})
+function plot_all(X::SamplePath, obstimes, obsvals,Ps)
     p1 = plotboth(X, Ps, 1)
     p2 = plotboth(X, Ps, 2)
     p3 = plotboth(X, Ps, 3)
