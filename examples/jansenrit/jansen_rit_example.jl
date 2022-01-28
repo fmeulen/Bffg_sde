@@ -152,57 +152,94 @@ savefig(joinpath(outdir,"deviations_guidedinitial_withx1deterministic.png"))
 
 #tup = (; zip(pars.names, SA[1.0])...)  # make named tuple 
 
-#  pars = ParInfo([:C, :μy], [false, true])
-#  tuningpars = [15.0, 10.0]
+pars = ParInfo([:C, :μy], [false, true])
+K = parameterkernel((short=[2.0, 2.0], long=[10.0, 10.0]); s=0.5)  
+Ke = parameterkernel((short=[5.0, 5.0], long=[50.0, 50.0]))  # for exploring chain
+  
 
 
 
 # initialisation
-ℙinit = setproperties(ℙ, (C=500.0))   # C=100.0, μy=100.0) 
+ℙinit = setproperties(ℙ, (C=40.0))   # C=100.0, μy=100.0) 
 
 pars = ParInfo([:C], [false])
-ρ = 0.99
 
 
 
 
-Ke = parameterkernel((short=[5.0], long=[70.0]))  # for exploring chain
-K = parameterkernel((short=[5.0], long=[40.0]); s=0.0)   # local proposals for targeting chain
+K = parameterkernel((short=[2.0], long=[10.0]); s=0.5)  
+Ke = parameterkernel((short=[5.0], long=[10.0]))  # for exploring chain
+ # local proposals for targeting chain
 
 
 #Profile.init() 
 #ProfileView.@profview 
 parup = true
 
-Random.seed!(3)
-temperature = 10.0
-@time XX, θs, S, lls, (accpar, accinnov), θse, Se, llse = 
-inference(obs, timegrids, x0, pars, K, Ke, ρ, ℙinit, temperature ; 
-skip_it = 500, iterations=1000, verbose=true, parupdating=parup);   
-
-#@enter parinf_new(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit ; skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);   
-
-Random.seed!(3)
-#@time  XX, θs, Ps, lls, (accpar, accinnov) =   parinf_old(obs, timegrids, x0, pars, tuningpars, ρ, ℙinit; 
- #                skip_it = 100, iterations=1_000, verbose=true, parupdating=parup);    
+timegrids = set_timegrids(obs, 0.0005)
 
 
-    pC = plot(map(x->x[1], θs), label="C target")
-    Plots.abline!(pC,  0.0, ℙ.C ,label="true value")
-    plot!(pC, map(x->x[1], θse), label="C exploring")
-    histogram(map(x->x[1], θse),bins=35)
-    
-    p = plot(lls, label="target")    
-    plot!(p, llse, label="exploring")  
+ITER = 2200
+ρ = 0.9
+ρe = .95
+K = parameterkernel((short=[2.0], long=[10.0]); s=0.5)  
+
+  XX, θs, S, lls, (accpar, accinnov) = inference(obs, timegrids, x0, pars, K, ρ, ℙinit; skip_it = 500,  iterations=ITER,  parupdating=parup);   
+
+  temperature = 10.0
+  XX, θs, S, lls, (accpar, accinnov), θse, Se, llse = inference_steep(obs, timegrids, x0, pars, K, Ke, ρ, ρe, ℙinit, temperature;  skip_it = 500, iterations=ITER,  parupdating=parup);   
+
+# first attempt swap
+S.Ps
+getpar(S.Ms, pars)
 
 
-pP =  plot_all(Ps)
+Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ = S.Ms, S.Ps, S.Msᵒ, S.Psᵒ, S.ll, S.h0, S.θ;
+Mse, Pse, Msᵒe, Psᵒe, lle, h0e, θe = Se.Ms, Se.Ps, Se.Msᵒ, Se.Psᵒ, Se.ll, Se.h0, Se.θ;
 
-l = @layout [a ;b]
-plot(pF, pP,  layout=l)
+
+# check: deze hebben we al 
+ll = forwardguide!_and_ll(InnovationsFixed(), Psᵒ, Ps, Ms, x0, h0)
+
+
+# wat nu als we de target change met een long-range proposal vanuit de exploring chain updaten? dit is π(θ̄, z̄)
+llprop = forwardguide!_and_ll(InnovationsFixed(), Psᵒ, Pse, Ms, x0, h0)
+
+# check: deze hebben we ook al 
+lle = forwardguide!_and_ll(InnovationsFixed(), Psᵒe, Pse, Mse, x0, h0e)
+
+# wat nu als we de target change met een long-range proposal vanuit de exploring chain updaten? dit is π(θ̄, z̄)
+lleprop = forwardguide!_and_ll(InnovationsFixed(), Psᵒe, Ps, Mse, x0, h0e)
+
+llprop - ll + lleprop-lle
+
+
+pC = plot(map(x->x[1], θs), label="C target")
+Plots.abline!(pC,  0.0, ℙ.C ,label="true value")
+plot!(pC, map(x->x[1], θse), label="C exploring")
+
+
+histogram(map(x->x[1], θse),bins=35)
+
+p = plot(lls, label="target")    
+plot!(p, llse, label="exploring")  
+
+
+pP =  plot_all(S.Ps)
+pPe = plot_all(Se.Ps)
+l = @layout [a ;b  c]
+plot(pF, pP, pPe,  layout=l)
+plot!(size=(1200,800))
 savefig(joinpath(outdir, "forward_and_guided_lastiterate.png"))
 
-plot_all(Xf, obstimes, obsvals, Ps)
+plot_all(Xf, obstimes, obsvals, S.Ps)
+plot_all(Xf, obstimes, obsvals, Se.Ps)
+
+deviations = [ obs[i].v - obs[i].L * lastval(S.Ps[i-1])  for i in 2:length(obs)]
+deviationse = [ obs[i].v - obs[i].L * lastval(Se.Ps[i-1])  for i in 2:length(obs)]
+plot(obstimes[2:end], map(x-> x[1,1], deviations))
+plot!(obstimes[2:end], map(x-> x[1,1], deviationse))
+
 
 pC = plot(map(x->x[1], θs), label="C")
 Plots.abline!(pC,  0.0, ℙ.C )
