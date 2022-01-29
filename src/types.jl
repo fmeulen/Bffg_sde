@@ -201,3 +201,50 @@ end
 #     println()
 #     print(io, S.θ)
 # end
+
+
+
+# struct CS{Tℙ, Tℙ̃, TX, TW, TM, Tl, Tl0, THtransform, Tθ}
+#     ℙ::Tℙ
+#     ℙ̃::Vector{Tℙ̃}   
+#     XX::Vector{TX}
+#     WW::Vector{TW}
+#     MM::Vector{TM}
+#     ll::Vector{Tl}
+#     loglik::Tl0
+#     h0::THtransform
+#     θ::Tθ
+    
+#     CS(ℙ, ℙ̃, XX, WW, MM, ll, loglik, h0, θ)  = new{typeof(ℙ), eltype(ℙ̃), eltype(XX),eltype(WW), eltype(MM), eltype(ll), typeof(loglik), typeof(h0), typeof(θ)}(ℙ, ℙ̃, XX, WW, MM, ll, loglik, h0, θ)
+    
+#     function ChainState(ρ::Float64, timegrids, obs, ℙ, x0, pars, guidingterm_with_x1; AuxType=JansenRitDiffusionAux)
+#         ℙ̃ = AuxType[]
+#         n = length(obs)
+#         for i in 2:n # skip x0
+#           lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], zeros(2) )
+#           push!(ℙ̃, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
+#         end
+#         h0, MM = backwardfiltering(obs, timegrids, ℙ, ℙ̃)
+#         if guidingterm_with_x1
+#             add_deterministicsolution_x1!(MM, x0)
+#             h0 = backwardfiltering!(MM, obs)
+#         end
+        
+#         ρs = fill(ρ, length(timegrids))    
+#         xend = x0
+#         for i in eachindex(timegrids)
+#             tt = timegrids[i]
+#             W = sample(tt, wienertype(ℙ))    
+#             X = solve(Euler(), xend, W, M)  # allocation        
+#         ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
+
+
+#         Ps = forwardguide(x0, Ms);
+#         ll = loglik(x0, h0, Ps)
+#         θ = getpar(Ms, pars)
+#         Psᵒ = [PathInnovationProposal(Ps[i], ρs[i]) for i ∈ eachindex(Ps)] 
+#         #Psᵒ[2].W.yy === Ps[2].W.yy 
+#         Msᵒ = deepcopy(Ms)
+#         new{eltype(Ms), eltype(Ps),  eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+#     end
+# end
