@@ -71,6 +71,24 @@ end
 
 
 
+function pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
+    noisetype = wienertype(ℙ)
+    for i in eachindex(Z.z)
+      sample!(Zbuffer.z[i], noisetype)
+      Zᵒ.z[i].yy .= ρs[i]*Z.z[i].yy + sqrt(1.0-ρs[i]^2)*Zbuffer.z[i].yy
+    end
+end
+  
+function printinfo(ll, llᵒ, s::String) 
+    println(s * " update. ll $ll; llᵒ $llᵒ, difference: ",round(llᵒ-ll;digits=3)) 
+    #println()
+end
+  
+function copy!(Z1::Innovations, Z2::Innovations)
+    for i in eachindex(Z1.z)
+        Z1.z[i].yy .= Z2.z[i].yy 
+    end
+end
 
 
 
