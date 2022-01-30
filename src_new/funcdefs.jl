@@ -201,6 +201,16 @@ end
    
 
 
+function adjust_PNCparamters(Ps, ρ; thresh=0.25)
+    for i in eachindex(Ps)
+        U = rand()
+        u = ρ * (U<thresh) + (U>=thresh)
+        ui = Ps[i]
+        @set! ui.ρ = u
+        Ps[i] = ui
+    end
+    Ps
+end
 
 
 
