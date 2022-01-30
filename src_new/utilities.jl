@@ -47,19 +47,6 @@ end
 
    
 
-"""
-    kernelrk4(f, t, y, dt, ℙ)
-
-    solver for Runge-Kutta 4 scheme
-"""
-function kernelrk4(f, t, y, dt, ℙ)
-    k1 = f(t, y, ℙ)
-    k2 = f(t + 0.5*dt, y + 0.5*k1*dt, ℙ)
-    k3 = f(t + 0.5*dt, y + 0.5*k2*dt, ℙ)
-    k4 = f(t + dt, y + k3*dt, ℙ)
-    y + dt*(k1 + 2*k2 + 2*k3 + k4)/6.0
-end
-
 
 
 
@@ -94,37 +81,8 @@ end
 
 ec(x,i) = getindex.(x,i)
 
-function plot_(Ps::Vector,comp::Int)
-    p = plot(Ps[1].X.tt, ec(Ps[1].X.yy,comp), label="")
-    for k in 2:length(Ps)
-      plot!(p, Ps[k].X.tt, ec(Ps[k].X.yy,comp), label="")
-    end
-    p
-end
 
-function plot_(Ps,::String)
-    p = plot(Ps[1].X.tt, ec(Ps[1].X.yy,2) - ec(Ps[1].X.yy,3) , label="")
-    for k in 2:length(Ps)
-      plot!(p, Ps[k].X.tt, ec(Ps[k].X.yy,2) - ec(Ps[k].X.yy,3), label="")
-    end
-    p
-end
-
-
-
-function plot_all(Ps::Vector)
-    p1 = plot_(Ps,1)
-    p2 = plot_(Ps,2)
-    p3 = plot_(Ps,3)
-    p4 = plot_(Ps,4)
-    p5 = plot_(Ps,5)
-    p6 = plot_(Ps,6)
-    p2_3 = plot_(Ps,"23")
-    l = @layout [a b c ; d e f; g]
-    plot(p1, p2, p3, p4, p5, p6, p2_3, layout=l)
-end
-
-function plot_all(X::SamplePath)
+function plot_all(::JansenRitDiffusion, X::SamplePath)
     p1 = plot(X.tt, getindex.(X.yy,1), label="")
     p2 = plot(X.tt, getindex.(X.yy,2), label="")
     p3 = plot(X.tt, getindex.(X.yy,3), label="")
@@ -136,7 +94,7 @@ function plot_all(X::SamplePath)
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end
 
-function plot_all(X::SamplePath, obstimes, obsvals)
+function plot_all(::JansenRitDiffusion,X::SamplePath, obstimes, obsvals)
     p1 = plot(X.tt, getindex.(X.yy,1), label="")
     p2 = plot(X.tt, getindex.(X.yy,2), label="")
     p3 = plot(X.tt, getindex.(X.yy,3), label="")
@@ -151,67 +109,54 @@ end
 
 
 
-function plotboth(X::SamplePath, Ps, comp)
+function plotboth(::JansenRitDiffusion,X::SamplePath, timegrids, XX, comp)
     p1 = plot(X.tt, getindex.(X.yy,comp), label="",color="grey")
-    for k in 1:length(Ps)
-        plot!(p1, Ps[k].X.tt, ec(Ps[k].X.yy,comp), label="")
+    for k in eachindex(XX)
+        plot!(p1, timegrids[k], ec(XX[k],comp), label="")
     end
     p1
 end
 
-function plot_all(X::SamplePath, obstimes, obsvals,Ps)
-    p1 = plotboth(X, Ps, 1)
-    p2 = plotboth(X, Ps, 2)
-    p3 = plotboth(X, Ps, 3)
-    p4 = plotboth(X, Ps, 4)
-    p5 = plotboth(X, Ps, 5)
-    p6 = plotboth(X, Ps, 6)
-    
-    p2_3 = plot_(Ps,"23")
-    p2_3 = plot!(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="", color="grey")
+function plot_all(P::JansenRitDiffusion,X::SamplePath, obstimes, obsvals, timegrids, XX)
+    p1 = plotboth(P, X, timegrids, XX, 1)
+    p2 = plotboth(P, X, timegrids, XX, 2)
+    p3 = plotboth(P, X, timegrids, XX, 3)
+    p4 = plotboth(P, X, timegrids, XX, 4)
+    p5 = plotboth(P, X, timegrids, XX, 5)
+    p6 = plotboth(P, X, timegrids, XX, 6)
+    p2_3 =  plot(X.tt, getindex.(X.yy,2)-getindex.(X.yy,3), label="",color="grey")
+    for k in eachindex(XX)
+        plot!(p2_3, timegrids[k], ec(XX[k],2)-ec(XX[k],3), label="")
+    end
+    p1
     plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=1.5, label="")
-    
-
     l = @layout [a b c; d e f; g]
     plot(p1,p2,p3,p4,p5,p6, p2_3, layout=l)
 end
 
 
-# X = Xf1
-# p1 = plot(X.tt, getindex.(X.yy,1), label="")
-# p2 = plot(X.tt, getindex.(X.yy,2), label="")
-# p3 = plot(X.tt, getindex.(X.yy,3), label="")
-# p4 = plot(X.tt, getindex.(X.yy,4), label="")
-# p5 = plot(X.tt, getindex.(X.yy,5), label="")
-# p6 = plot(X.tt, getindex.(X.yy,6), label="")
-# X = Xf2
-# plot!(p1, X.tt, getindex.(X.yy,1), label="")
-# plot!(p2, X.tt, getindex.(X.yy,2), label="")
-# plot!(p3, X.tt, getindex.(X.yy,3), label="")
-# plot!(p4, X.tt, getindex.(X.yy,4), label="")
-# plot!(p5, X.tt, getindex.(X.yy,5), label="")
-# plot!(p6, X.tt, getindex.(X.yy,6), label="")
+function plot_(::JansenRitDiffusion, tt, XX, comp::Int)
+    p = plot(tt[1], ec(XX[1],comp), label="")
+    for k in 2:length(XX)
+      plot!(p, tt[k], ec(XX[k],comp), label="")
+    end
+    p
+end
 
 
-
-
-
-# p2_3 = plot(X.tt, getindex.(X.yy,2) - getindex.(X.yy,3), label="")
-# plot!(p2_3, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=1.5, label="")
-# l = @layout [a b c; d e f]
-# plot(p1,p2,p3,p4,p5,p6, layout=l)
-
-
-function plot_all(XX)
-    XXcat = vcat(XX...)
-    tt = vcat(timegrids...)
-    p1 = plot(tt, getindex.(XXcat,1), label="")
-    p2 = plot(tt, getindex.(XXcat,2), label="")
-    p3 = plot(tt, getindex.(XXcat,3), label="")
-    p4 = plot(tt, getindex.(XXcat,4), label="")
-    p5 = plot(tt, getindex.(XXcat,5), label="")
-    p6 = plot(tt, getindex.(XXcat,6), label="")
-    p7 = plot(tt, getindex.(XXcat,2)-getindex.(XXcat,3), label="")
+function plot_all(P::JansenRitDiffusion, timegrids, XX)
+    tt = timegrids
+    p1 = plot_(P, tt, XX, 1)
+    p2 = plot_(P, tt, XX, 2)
+    p3 = plot_(P, tt, XX, 3)
+    p4 = plot_(P, tt, XX, 4)
+    p5 = plot_(P, tt, XX, 5)
+    p6 = plot_(P, tt, XX, 6)
+    p7 = plot(tt[1], ec(XX[1],2) - ec(XX[1],3), label="")
+    for k in 2:length(XX)
+      plot!(p7, tt[k], ec(XX[k],2) - ec(XX[k],3), label="")
+    end
+  
     l = @layout [a b c ; d e f; g]
     plot(p1, p2, p3, p4, p5, p6, p7, layout=l)
 end
