@@ -155,7 +155,7 @@ for i in 1:iterations
     accpar += 1
     !verbose && print("✓")  
   end
-  XX, ll, θ accpar_ = parupdate!(B, ℙ, pars, XX, Prior)(x0, θ, Z, ll); # θ may get overwritten
+  #XX, ll, θ accpar_ = parupdate!(B, ℙ, pars, XX, Prior)(x0, θ, Z, ll); # θ may get overwritten
   push!(llsave, ll)
 
   pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
