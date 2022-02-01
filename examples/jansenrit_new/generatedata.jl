@@ -34,7 +34,7 @@ x0 = Xf.yy[1]
 skipobs = 400  #length(Xf.tt)-1 #500
 obstimes =  Xf.tt[1:skipobs:end]
 obsvals = map(x -> L*x, Xf.yy[1:skipobs:end])
-pF = plot_all(Xf, obstimes, obsvals)
+pF = plot_all(ℙ,  Xf, obstimes, obsvals)
 savefig(joinpath(outdir, "forwardsimulated.png"))
 
 #------- process observations
@@ -48,16 +48,15 @@ obs[1] = Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*
 # remainder is checking 
 
 timegrids = set_timegrids(obs, 0.0005)
-B = BackwardFilter(AuxType, obs, timegrids, x0, false);
+B = BackwardFilter(ℙ, AuxType, obs, timegrids, x0, false);
 Z = Innovations(timegrids, ℙ);
 
 # check
-forwardguide(x0, ℙ, Zs.z[1], Ms[1]);
+#forwardguide(x0, ℙ, Z.z[1], B.Ms[1]);
 XX, ll = forwardguide(x0, ℙ, Z, B);
 
 pG = plot_all(ℙ, timegrids,XX)
 l = @layout [a;b]
-
 plot(pF, pG, layout=l)
 savefig(joinpath(outdir,"forward_guidedinitial_separate.png"))
 

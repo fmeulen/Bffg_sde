@@ -161,7 +161,7 @@ end
 # plot!(p,vcat(tt...), vcat(yy...),color="grey")
 
 
-function init_auxiliary_processes(AuxType, obs, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
+function init_auxiliary_processes(ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
     ℙ̃s = AuxType[]
     n = length(obs)
     for i in 2:n # skip x0

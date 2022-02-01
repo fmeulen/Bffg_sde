@@ -16,10 +16,10 @@ end
 
 
 
-getfield_(P) =  (x) -> getfield(P,x)
-getpar(P, ind::Vector{Symbol}) = getfield_(P).(ind)
-getpar(M::Message, p::ParInfo) = getpar(M.ℙ, p.names)
-getpar(Ms::Vector{Message}, p::ParInfo) = getpar(Ms[1].ℙ, p.names)
+# getfield_(P) =  (x) -> getfield(P,x)
+# getpar(P, ind::Vector{Symbol}) = getfield_(P).(ind)
+# getpar(M::Message, p::ParInfo) = getpar(M.ℙ, p.names)
+# getpar(Ms::Vector{Message}, p::ParInfo) = getpar(Ms[1].ℙ, p.names)
 
 
 function convert_PνC_to_HFC(P,ν,C)
@@ -38,14 +38,6 @@ getpar(M::Message, ind::Vector{Symbol}) = getpar(M.ℙ, ind::Vector{Symbol})
 
 
 lastval(X::SamplePath) = X.yy[end]
-
-lastval(P::Union{PathInnovation, PathInnovationProposal}) = lastval(P.X)
-
-function mergepaths(Ps)
-    tt = map(x->x.X.tt, Ps)
-    yy = map(x->x.X.yy, Ps)
-    SamplePath(vcat(tt...),vcat(yy...))
-end
 
 
 

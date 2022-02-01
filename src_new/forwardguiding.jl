@@ -37,7 +37,7 @@ function forwardguide(x0, ℙ, Z::Innovations, B::BackwardFilter)
     X, ll = forwardguide(x0, ℙ, Z.z[1], B.Ms[1])
     xlast = X[end]
     XX = [X]
-    for i in 2:length(Ms)
+    for i in 2:length(B.Ms)
         X, ll_ = forwardguide(xlast, ℙ, Z.z[i], B.Ms[i])
         ll += ll_
         push!(XX, copy(X))
@@ -57,7 +57,14 @@ function setpar(θ, ℙ, pars)
 forwardguide(B, ℙ, pars) = (x0, θ, Z) -> forwardguide(x0, setpar(θ, ℙ, pars), Z, B);
   
 
-
+function parameterkernel(θ, tuningpars, s) 
+    shortrange = rand()>s
+    Δ = shortrange ?  rand(MvNormal(tuningpars.short)) : rand(MvNormal(tuningpars.long))
+    θ + Δ
+  end
+  
+  parameterkernel(tuningpars; s=0.33) = (θ) -> parameterkernel(θ, tuningpars, s) 
+  
 
 
 
@@ -90,6 +97,63 @@ function copy!(Z1::Innovations, Z2::Innovations)
     end
 end
 
+function copy!(Z1::Innovations{T}, Z2::Innovations{T}) where {T<:SamplePath}
+    for i in eachindex(Z1.z)
+        Z1.z[i].yy .= Z2.z[i].yy 
+    end
+end
+
+
+import Base.copy
+copy(Z::Innovations) = Innovations(deepcopy(Z.z))
+
+function checkstate(w,B, ℙ, pars)
+    _, ll = forwardguide(B, ℙ, pars)(x0, w.θ, w.Z)
+    w.ll ==ll, w.ll-ll
+  end
+  checkstate(B, ℙ, pars) = (w) -> checkstate(w,B, ℙ, pars)
+
+
+
+# par updating
+function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Prior; verbose=true)
+    accpar_ = false
+    θᵒ = K(θ)  
+    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
+    !verbose && printinfo(ll, llᵒ, "par") 
+    if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
+      XX, XXᵒ = XXᵒ, XX
+      ll = llᵒ
+      θ .= θᵒ
+      #th, θᵒ = θᵒ, th
+      #copyto!(th, θᵒ)
+      accpar_ = true
+      !verbose && print("✓")  
+    end
+    XX, ll, θ, accpar_
+end
+
+parupdate!(B, ℙ, pars, XX, Prior; verbose=true)  = (x0, th, Z, ll) -> parupdate!(B, ℙ, pars, x0, th, Z, ll, XX, Prior; verbose=verbose)
+
+# innov updating
+function pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=true)
+    accinnov_ = false 
+    pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
+    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
+    !verbose && printinfo(ll, llᵒ, "pCN") 
+    if log(rand()) < llᵒ-ll
+        XX, XXᵒ = XXᵒ, XX
+        copy!(Z, Zᵒ)
+        ll = llᵒ
+        accinnov_ = true
+        !verbose && print("✓")  
+    end
+    XX, ll, accinnov_
+end
+
+pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll) ->    pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
+
+#@enter parupdate!(Be, ℙe, pars, XXe, Prior)(x0, θe, Ze, lle);
 
 
 

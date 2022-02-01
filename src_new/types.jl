@@ -1,20 +1,7 @@
 abstract type Solver end
-
-struct RK4 <: Solver end
 struct DE{T} <: Solver 
     solvertype::T
 end
-
-struct Adaptive <: Solver end
-struct AssumedDensityFiltering{T} <: Solver 
-    solvertype::T
-end
-
-
-abstract type  GuidType end
-struct PCN <: GuidType  end
-struct InnovationsFixed <: GuidType end
-
 
 struct ParInfo
     names::Vector{Symbol}
@@ -54,21 +41,6 @@ struct Observation{Tt, Tv, TL, TΣ, Th}
         new{Tt, Tv, TL, TΣ, typeof(h)}(t,v,L,Σ,h)
     end    
 end
-
-# struct PathInnovation{TX, TW, Tll}
-#     X::TX
-#     W::TW
-#     ll::Tll
-#     PathInnovation(X::TX, W::TW, ll::Tll) where {TX, TW, Tll} = new{TX,TW,Tll}(X, W, ll)
-
-#     function PathInnovation(x0, M)
-#         tt = M.tt
-#         W = sample(tt, wienertype(M.ℙ))    
-#         X = solve(Euler(), x0, W, M)  # allocation        
-#         ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
-#         new{typeof(X), typeof(W), typeof(ll)}(X, W, ll)
-#     end
-# end
 
 
 
@@ -139,8 +111,17 @@ struct BackwardFilter{T, Th0}
     
    BackwardFilter(Ms, h0::Th0)  where {Th0} = new{eltype(Ms), Th0}(Ms, h0)
    
-   function BackwardFilter(AuxType, obs, timegrids, x0, guidingterm_with_x1) 
-        h0, Ms = init_auxiliary_processes(AuxType, obs, timegrids, x0, guidingterm_with_x1)
+   function BackwardFilter(ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1) 
+        h0, Ms = init_auxiliary_processes(ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1)
         new{eltype(Ms), typeof(h0)}(Ms, h0)
     end
 end  
+
+
+struct State{Tx0, TI, Tθ, Tll}
+    x0::Tx0
+    Z::Innovations{TI}
+    θ::Vector{Tθ}
+    ll::Tll
+end
+  
