@@ -50,7 +50,7 @@ end
 
 
 function setpar(θ, ℙ, pars) 
-    tup = (; zip(pars.names, θ)...) 
+    tup = (; zip(pars.names, θ)...) # try copy here
     setproperties(ℙ, tup)
   end  
   
@@ -115,40 +115,39 @@ function checkstate(w,B, ℙ, pars)
 
 
 
-# par updating
-function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Prior; verbose=true)
+# par updating, θ and XX are overwritten when accepted
+function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior; verbose=true)
     accpar_ = false
     θᵒ = K(θ)  
     XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
     !verbose && printinfo(ll, llᵒ, "par") 
     if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
-      XX, XXᵒ = XXᵒ, XX
+      @. XX = XXᵒ
       ll = llᵒ
-      θ .= θᵒ
-      #th, θᵒ = θᵒ, th
-      #copyto!(th, θᵒ)
+      @. θ = θᵒ
       accpar_ = true
       !verbose && print("✓")  
     end
-    XX, ll, θ, accpar_
+    ll, accpar_
 end
 
-parupdate!(B, ℙ, pars, XX, Prior; verbose=true)  = (x0, th, Z, ll) -> parupdate!(B, ℙ, pars, x0, th, Z, ll, XX, Prior; verbose=verbose)
+parupdate!(B, ℙ, pars, XX, K, Prior; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior; verbose=verbose)
 
-# innov updating
+
+# innov updating, XX and Z may get overwritten
 function pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=true)
     accinnov_ = false 
     pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
     XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
     !verbose && printinfo(ll, llᵒ, "pCN") 
     if log(rand()) < llᵒ-ll
-        XX, XXᵒ = XXᵒ, XX
+        @. XX = XXᵒ
         copy!(Z, Zᵒ)
         ll = llᵒ
         accinnov_ = true
         !verbose && print("✓")  
     end
-    XX, ll, accinnov_
+    ll, accinnov_
 end
 
 pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll) ->    pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
@@ -157,3 +156,30 @@ pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll)
 
 
 
+
+
+
+
+
+  # θᵒ = K(θ)  
+  # XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
+  # !verbose && printinfo(ll, llᵒ, "par") 
+  # if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
+  #   XX, XXᵒ = XXᵒ, XX
+  #   ll = llᵒ
+  #   θ .= θᵒ
+  #   accpar += 1
+  #   !verbose && print("✓")  
+  # end
+
+
+    # pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
+  # XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
+  # !verbose && printinfo(ll, llᵒ, "pCN") 
+  #   if log(rand()) < llᵒ-ll
+  #     XX, XXᵒ = XXᵒ, XX
+  #     copy!(Z, Zᵒ)
+  #     ll = llᵒ
+  #     accinnov +=1
+  #     !verbose && print("✓")  
+  #   end

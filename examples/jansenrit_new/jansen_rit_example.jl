@@ -52,7 +52,7 @@ pars = ParInfo([:C], [false])
 
 timegrids = set_timegrids(obs, 0.0005)
 
-iterations = 2_000
+iterations = 5_000
 skip_it = 200
 subsamples = 0:skip_it:iterations # for saving paths
 
@@ -114,100 +114,52 @@ for i in 1:iterations
   (i % 500 ==0) && println(i)
   targetshortproposal = rand()>0.33
 
+  #exploring chain
+  lle, accpare_ = parupdate!(Be, ℙe, pars, XXe, Ke, Prior; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
+  lle, accinnove_ = pcnupdate!(Be, ℙe, pars, XXe, Zbuffer, Zeᵒ, ρse)(x0, θe, Ze, lle); # Z and XX may get overwritten
 
-  # exploring chain
-  θeᵒ = Ke(θe)  
-  XXeᵒ, lleᵒ = forwardguide(Be, ℙe, pars)(x0, θeᵒ, Ze);
-  !verbose && printinfo(lle, lleᵒ, "par") 
-  if log(rand()) < lleᵒ-lle  + (logpdf(Prior, θeᵒ) - logpdf(Prior, θe))[1]
-    XXe, XXeᵒ = XXeᵒ, XXe
-    lle = lleᵒ
-    θe .= θeᵒ
-    accpare += 1
-    !verbose && print("✓")  
-  end
-  #XXe, lle, accpare_ = parupdate!(Be, ℙe, pars, XXe, Prior)(x0, θe, Ze, lle);
-
-  pcn!(Zeᵒ, Ze, Zbuffere, ρse, ℙe)
-  XXeᵒ, lleᵒ = forwardguide(Be, ℙe, pars)(x0, θe, Zeᵒ);
-  !verbose && printinfo(lle, lleᵒ, "pCN") 
-    if log(rand()) < lleᵒ-lle
-      XXe, XXeᵒ = XXeᵒ, XXe
-      copy!(Ze, Zeᵒ)
-      lle = lleᵒ
-      accinnove +=1
-      !verbose && print("✓")  
-    end
-
-    push!(exploring, State(x0, deepcopy(Ze), deepcopy(θe), copy(lle)))
-  
-    push!(θesave, copy(θe))
-    push!(llesave, lle)
-  
   # target chain
-  θᵒ = K(θ)  
-  XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
-  !verbose && printinfo(ll, llᵒ, "par") 
-  if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
-    XX, XXᵒ = XXᵒ, XX
-    ll = llᵒ
-    θ .= θᵒ
-    accpar += 1
-    !verbose && print("✓")  
-  end
-  #XX, ll, θ accpar_ = parupdate!(B, ℙ, pars, XX, Prior)(x0, θ, Z, ll); # θ may get overwritten
-  push!(llsave, ll)
+  ll, accpare_ = parupdate!(B, ℙ, pars, XX, K, Prior; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
+  ll, accinnov_ = pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs)(x0, θ, Z, ll); # Z and XX may get overwritten
 
-  pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
-  XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
-  !verbose && printinfo(ll, llᵒ, "pCN") 
-    if log(rand()) < llᵒ-ll
-      XX, XXᵒ = XXᵒ, XX
-      copy!(Z, Zᵒ)
-      ll = llᵒ
-      accinnov +=1
-      !verbose && print("✓")  
-    end
-  # XX, ll, accinnov_ = pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs)(x0, θ, Z, ll); # Z may get overwritten
-
+  # saving iterates
+  push!(θesave, copy(θe))
+  push!(llesave, lle)
+  push!(exploring, State(x0, deepcopy(Ze), deepcopy(θe), copy(lle)))
   push!(θsave, copy(θ))
   push!(llsave, ll)
   (i in subsamples) && push!(XXsave, copy(XX))
 
   adjust_PNCparamters!(ρs, ρ)
 
-
   # swap move
-  # proposal
   
-  if i>2000
-  # Randomly choose from samples of exploring chain
-  w = sample(exploring)
-   # checkstate(Be, ℙe, pars)(w)
-  copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
-  #copy!(Zᵒ, Z)
-  
-  θᵒ = copy(w.θ)
-  XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
-  # compute log proposalratio
-  _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
-  #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
-  llproposalᵒ = w.ll
-  A = llᵒ -ll + llproposal - llproposalᵒ 
-  if log(rand()) < A
-    XX, XXᵒ = XXᵒ, XX
-    copy!(Z, Zᵒ)
-    ll = llᵒ
-    θ .= θᵒ
-    accswap +=1
-    !verbose && print("✓")  
-  end
-  push!(θsave, copy(θ))
+ if i>200
+    
+    w = sample(exploring)     # Randomly choose from samples of exploring chain
+    # checkstate(Be, ℙe, pars)(w)
+    copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
+    θᵒ = copy(w.θ)
+    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
+    # compute log proposalratio
+    _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
+    #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
+    llproposalᵒ = w.ll
+    A = llᵒ -ll + llproposal - llproposalᵒ 
+    if log(rand()) < A
+      @. XX = XXᵒ
+      copy!(Z, Zᵒ)
+      ll = llᵒ
+      @. θ = θᵒ
+      accswap +=1
+      !verbose && print("✓")  
+    end
+    push!(θsave, copy(θ))
 end
 
 end
 θsave
-
+  
 plot(map(x->x[1],θsave), label="target")
 plot!(map(x->x[1],θesave), label="exploring")
 
