@@ -38,17 +38,15 @@ include("plotting.jl")
 include("generatedata.jl")
 
 
-
-
-
 # a small program
 
 # settings
-verbose = true
+verbose = true # if true, surpress output written to console
 
 pars = ParInfo([:C], [false])
-θ = [20.0] # initial value for parameter
-θe = [20.0]
+θinit = 30.0
+θ = [θinit+400.0] # initial value for parameter
+θe = [θinit]
 
 timegrids = set_timegrids(obs, 0.0005)
 
@@ -64,13 +62,13 @@ K = parameterkernel((short=[2.0], long=[10.0]); s=0.0) # always use short-range 
 
 # exploring chain
 ρe = 0.95
-𝒯 = 10.0 # temperature
-Ke = parameterkernel((short=[10.0], long=[60.0]))  
+𝒯 = 2.0 # temperature
+Ke = parameterkernel((short=[10.0], long=[100.0]))  
 
 ℙe = setproperties(ℙ, σy = 𝒯*ℙ.σy)
 
 
-# target chain 
+# initialisation of target chain 
 B = BackwardFilter(ℙ, AuxType, obs, timegrids, x0, false);
 Z = Innovations(timegrids, ℙ);
 Zbuffer = deepcopy(Z)
@@ -78,15 +76,11 @@ Zᵒ = deepcopy(Z)
 ρs = fill(ρ, length(timegrids))
 XX, ll = forwardguide(B, ℙ, pars)(x0, θ, Z);
 
-# exploring chain 
+# initialisation of exploring chain 
 Be = BackwardFilter(ℙe, AuxType, obs, timegrids, x0, false);
 Ze = Innovations(timegrids, ℙ);
-Zbuffere = deepcopy(Ze)
 Zeᵒ = deepcopy(Ze)
 ρse = fill(ρe, length(timegrids))
-
-
-
 XXe, lle = forwardguide(Be, ℙe, pars)(x0, θe, Ze);
 
 
@@ -105,10 +99,10 @@ accinnov = 0
 accpar = 0
 accinnove = 0
 accpare = 0
-accswap = 0
+accmove = 0
 
 
-exploring = []
+exploring = State[]
 
 for i in 1:iterations
   (i % 500 ==0) && println(i)
@@ -117,70 +111,56 @@ for i in 1:iterations
   #exploring chain
   lle, accpare_ = parupdate!(Be, ℙe, pars, XXe, Ke, Prior; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
   lle, accinnove_ = pcnupdate!(Be, ℙe, pars, XXe, Zbuffer, Zeᵒ, ρse)(x0, θe, Ze, lle); # Z and XX may get overwritten
+  push!(exploring, State(x0, copy(Ze), copy(θe), copy(lle)))
 
   # target chain
-  ll, accpare_ = parupdate!(B, ℙ, pars, XX, K, Prior; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
+  if rand() >0.33
+    ll, accpar_ = parupdate!(B, ℙ, pars, XX, K, Prior; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
+    accmove_ =0
+  else
+    w = sample(exploring)     # Randomly choose from samples of exploring chain
+    ll, accmove_ = exploremove!(B, ℙ, Be, ℙe, XX, Zᵒ, w; verbose=true)(x0, θ, Z, ll) 
+    accpar_ = 0
+  end  
   ll, accinnov_ = pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs)(x0, θ, Z, ll); # Z and XX may get overwritten
 
+  accpar += accpar_; accpare += accpare_; accinnove += accinnove_; accinnov += accinnov_; accmove += accmove_
   # saving iterates
   push!(θesave, copy(θe))
   push!(llesave, lle)
-  push!(exploring, State(x0, deepcopy(Ze), deepcopy(θe), copy(lle)))
   push!(θsave, copy(θ))
   push!(llsave, ll)
   (i in subsamples) && push!(XXsave, copy(XX))
-
+  
   adjust_PNCparamters!(ρs, ρ)
-
-  # swap move
-  
- if i>200
-    
-    w = sample(exploring)     # Randomly choose from samples of exploring chain
-    # checkstate(Be, ℙe, pars)(w)
-    copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
-    θᵒ = copy(w.θ)
-    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
-    # compute log proposalratio
-    _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
-    #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
-    llproposalᵒ = w.ll
-    A = llᵒ -ll + llproposal - llproposalᵒ 
-    if log(rand()) < A
-      @. XX = XXᵒ
-      copy!(Z, Zᵒ)
-      ll = llᵒ
-      @. θ = θᵒ
-      accswap +=1
-      !verbose && print("✓")  
-    end
-    push!(θsave, copy(θ))
 end
 
-end
-θsave
-  
-plot(map(x->x[1],θsave), label="target")
-plot!(map(x->x[1],θesave), label="exploring")
 
 
+
+# final imputed path
 plot_all(ℙ, timegrids, XXsave[end])
 plot_all(ℙ, Xf, obstimes, obsvals, timegrids, XXsave[end])
 
-println("accept% innov ", 100*accinnov/iterations,"%")
-println("accept% par ", 100*accpar/iterations,"%")
-println("accept% swap ", 100*accswap/iterations,"%")
+#
+println("Target chain: accept% innov ", 100*accinnov/iterations,"%")
+println("Target chain: accept% par ", 100*accpar/iterations,"%")
+println("Exploring chain: accept% innov ", 100*accinnove/iterations,"%")
+println("Exploring chain: accept% par ", 100*accpare/iterations,"%")
 
-histogram(map(x->x[1], θsave),bins=35)
+println("accept% swap ", 100*accmove/iterations,"%")
+
+
+h1 = histogram(getindex.(θsave,1),bins=35, label="target chain")
+h2 = histogram(getindex.(θesave,1),bins=35, label="exploring chain")
+plot(h1, h2, layout = @layout [a b])  
 
 p1 = plot(llsave, label="target")    
-plot!(p1,llesave, label="target")    
-llsave_last = llsave[500:end]
-p2 = plot(500:length(llsave), llsave_last, label="target")    
-plot(p1, p2, layout = @layout [a b])  
+plot!(p1,llesave, label="exploring")    
+
+# traceplots
+plot(getindex.(θsave,1), label="target")
+plot!(getindex.(θesave,1), label="exploring")
 
 
-
-plot(map(x->x[1],θsave), label="target")
-plot!(map(x->x[1],θesave), label="exploring")
 

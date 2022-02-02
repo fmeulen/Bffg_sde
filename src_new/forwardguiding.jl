@@ -152,8 +152,28 @@ end
 
 pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll) ->    pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
 
-#@enter parupdate!(Be, ℙe, pars, XXe, Prior)(x0, θe, Ze, lle);
+function exploremove!(B, ℙ, Be, ℙe, x0, θ, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
+    accswap_ = false
+    copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
+    θᵒ = copy(w.θ)
+    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
+    # compute log proposalratio
+    _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
+    #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
+    llproposalᵒ = w.ll
+    A = llᵒ -ll + llproposal - llproposalᵒ 
+    if log(rand()) < A
+        @. XX = XXᵒ
+        copy!(Z, Zᵒ)
+        ll = llᵒ
+        @. θ = θᵒ
+        accswap_ = true
+        !verbose && print("✓")  
+    end
+    ll, accswap_
+end
 
+exploremove!(B, ℙ, Be, ℙe, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremove!(B, ℙ, Be, ℙe, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
 
 
 
@@ -183,3 +203,24 @@ pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll)
   #     accinnov +=1
   #     !verbose && print("✓")  
   #   end
+
+  
+  
+    # # checkstate(Be, ℙe, pars)(w)
+    # copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
+    # θᵒ = copy(w.θ)
+    # XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
+    # # compute log proposalratio
+    # _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
+    # #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
+    # llproposalᵒ = w.ll
+    # A = llᵒ -ll + llproposal - llproposalᵒ 
+    # if log(rand()) < A
+    #   @. XX = XXᵒ
+    #   copy!(Z, Zᵒ)
+    #   ll = llᵒ
+    #   @. θ = θᵒ
+    #   accswap +=1
+    #   !verbose && print("✓")  
+    # end
+
