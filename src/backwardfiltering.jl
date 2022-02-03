@@ -1,34 +1,17 @@
+vectorise(P,ν, C) = vcat(SVector(P), ν, SVector(C))
+
 """
-    pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
+static_accessor_HFc(u::SVector, ::Val{T}) where T
+Access data stored in the container `u` so that it matches the shapes of H,F,c
+and points to the correct points in `u`. `T` is the dimension of the stochastic
+process.
 
-    Solve backward ODEs for `(H, F, C)` starting from `(HT, FT, CT)`` on time grid `t``
-    Auxiliary process is given by ℙ̃
-    Writes into (Ht, Ft)
+implemented by M. Mider in GuidedProposals.jl
 """
-function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
-    function dHFC(s, y, ℙ̃)
-        access = Val{}(dim(ℙ̃))
-        H, F, _ = static_accessor_HFc(y, access)
-        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
-
-        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
-        dF = - (_B' * F) + H * (_a * F + _β) 
-        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
-        vectorise(dH, dF, dC)
-    end
-
-    Ht[end] = hT.H
-    Ft[end] = hT.F
-    C = hT.C
-    access = Val{}(dim(ℙ̃))
-    y = vectorise(HT, FT, CT)
-
-    for i in length(t)-1:-1:1
-        dt = t[i] - t[i+1]
-        y = kernelrk4(dHFC, t[i+1], y, dt, ℙ̃)
-        Ht[i], Ft[i], C = static_accessor_HFc(y, access)
-    end
-    Ht, Ft, C
+function static_accessor_HFc(u::K, ::Val{T}) where {K<:Union{SVector,MVector},T}
+    Hidx = SVector{T*T,Int64}(1:T*T)
+    Fidx = SVector{T,Int64}((T*T+1):(T*T+T))
+    reshape(u[Hidx], Size(T,T)), u[Fidx], u[T*T+T+1]
 end
 
 
@@ -45,16 +28,16 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
     end
 
     # specialised function for JansenRitDiffusionAux
-    function dHFC(y, ℙ̃::JansenRitDiffusionAux, s) # note interchanged order of arguments
-        access = Val{}(dim(ℙ̃))
-        H, F, _ = static_accessor_HFc(y, access)
-        _B, _β = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃)
+    # function dHFC(y, ℙ̃::JansenRitDiffusionAux, s) # note interchanged order of arguments
+    #     access = Val{}(dim(ℙ̃))
+    #     H, F, _ = static_accessor_HFc(y, access)
+    #     _B, _β = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃)
      
-        dH = - (_B' * H)  - (H * _B) + Bridge.outer( mulXσ(H, ℙ̃) )
-        dF = - (_B' * F) + H * (mulax(F, ℙ̃)  + _β) 
-        dC = dot(_β, F) + 0.5* dotσx(F, ℙ̃)^2 - 0.5* trXa(H, ℙ̃)
-        vectorise(dH, dF, dC)
-    end
+    #     dH = - (_B' * H)  - (H * _B) + Bridge.outer( mulXσ(H, ℙ̃) )
+    #     dF = - (_B' * F) + H * (mulax(F, ℙ̃)  + _β) 
+    #     dC = dot(_β, F) + 0.5* dotσx(F, ℙ̃)^2 - 0.5* trXa(H, ℙ̃)
+    #     vectorise(dH, dF, dC)
+    # end
 
     
     
@@ -91,6 +74,75 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
     Ht, Ft, C
 end
 
+"""
+    kernelrk4(f, t, y, dt, ℙ)
+
+    solver for Runge-Kutta 4 scheme
+"""
+function kernelrk4(f, t, y, dt, ℙ)
+    k1 = f(t, y, ℙ)
+    k2 = f(t + 0.5*dt, y + 0.5*k1*dt, ℙ)
+    k3 = f(t + 0.5*dt, y + 0.5*k2*dt, ℙ)
+    k4 = f(t + dt, y + k3*dt, ℙ)
+    y + dt*(k1 + 2*k2 + 2*k3 + k4)/6.0
+end
+
+
+function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
+    function dHFC(s, y, ℙ̃)
+        access = Val{}(dim(ℙ̃))
+        H, F, _ = static_accessor_HFc(y, access)
+        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+
+        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
+        dF = - (_B' * F) + H * (_a * F + _β) 
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
+        vectorise(dH, dF, dC)
+    end
+
+    Ht[end] = hT.H
+    Ft[end] = hT.F
+    C = hT.C
+    access = Val{}(dim(ℙ̃))
+    y = vectorise(hT.H, hT.F, hT.C)
+
+    for i in length(t)-1:-1:1
+        dt = t[i] - t[i+1]
+        y = kernelrk4(dHFC, t[i+1], y, dt, ℙ̃)
+        Ht[i], Ft[i], C = static_accessor_HFc(y, access)
+    end
+    Ht, Ft, C
+end
+
+
+function pbridgeode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
+    function dHFC(s, y, ℙ̃)
+        access = Val{}(dim(ℙ̃))
+        H, F, _ = static_accessor_HFc(y, access)
+        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
+
+        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
+        dF = - (_B' * F) + H * (_a * F + _β) 
+        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
+        vectorise(dH, dF, dC)
+    end
+
+    Ht[end] = hT.H
+    Ft[end] = hT.F
+    C = hT.C
+    access = Val{}(dim(ℙ̃))
+    y = vectorise(hT.H, hT.F, hT.C)
+
+    for i in length(t)-1:-1:1
+        dt = t[i] - t[i+1]
+        y = vern7(dHFC, t[i+1], y, dt, ℙ̃, S.tableau)
+        Ht[i], Ft[i], C = static_accessor_HFc(y, access)
+    end
+    Ht, Ft, C
+end
+
+
+
 
 
 """
@@ -100,12 +152,15 @@ end
 """
 fusion_HFC(h1, h2) = Htransform(h1.H + h2.H, h1.F + h2.F, h1.C + h2.C)
 
-function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
+
+############# here rewrite with handwritten vern function
+
+function backwardfiltering(S,obs, timegrids, ℙ̃s)
     n = length(obs)-1
     hT = obs[end].h
     Ms = Message[]
     for i in n:-1:1
-        M = Message(DE(Vern7()), ℙ, ℙ̃s[i], timegrids[i], hT) 
+        M = Message(S, ℙ̃s[i], timegrids[i], hT) 
         pushfirst!(Ms, M)
         hT = fusion_HFC(Htransform(M), obs[i].h)
     end
@@ -113,11 +168,11 @@ function backwardfiltering(obs, timegrids, ℙ, ℙ̃s ;ϵ = 10e-2)
 end
 
 
-function backwardfiltering!(Ms, obs; ϵ = 10e-2) 
+function backwardfiltering!(S, Ms, obs) 
     n = length(Ms)
     hT = obs[end].h
     for i in n:-1:1
-        pbridgeode_HFC!(DE(Vern7()), Ms[i].ℙ̃, Ms[i].tt, (Ms[i].H, Ms[i].F), hT) #FIXME
+        pbridgeode_HFC!(S, Ms[i].ℙ̃, Ms[i].tt, (Ms[i].H, Ms[i].F), hT) #FIXME  S=DE(Vern7())
         hT = fusion_HFC(Htransform(Ms[i]), obs[i].h)
     end
     hT
@@ -176,3 +231,19 @@ end
 # yy = [Ms[i].ℙ̃.x1(tt[i]) for i in eachindex(Ps)]
 # p = plot_(Ps,1)
 # plot!(p,vcat(tt...), vcat(yy...),color="grey")
+
+
+function init_auxiliary_processes(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
+    ℙ̃s = AuxType[]
+    n = length(obs)
+    for i in 2:n # skip x0
+      lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], [x1_init, x1_init] )
+      push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
+    end
+    h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
+    if guidingterm_with_x1
+        add_deterministicsolution_x1!(Ms, x0)
+        h0 = backwardfiltering!(S, Ms, obs)
+    end
+    h0, Ms
+end

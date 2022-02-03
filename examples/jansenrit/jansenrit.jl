@@ -76,6 +76,10 @@ function Bridge.B(t, ℙ::JansenRitDiffusionAux)
                 0.0 0.0 -ℙ.b^2 0.0 0.0 -2.0*ℙ.b]
 end
 
+# Bridge.B(t, ℙ::JansenRitDiffusionAux) = sparse([1, 2, 3, 4, 4, 5, 5, 6, 6], [4, 5, 6, 1, 4, 2, 5, 3, 6], [1.0, 1.0, 1.0,-ℙ.a^2, -2.0ℙ.a,-ℙ.a^2, -2.0ℙ.a, -ℙ.b^2, -2.0ℙ.b])
+# Ssparse = SparseVector(6, [5], [ℙ.σy] )
+
+
 
 #Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), μy(t,ℙ), 0.0]
 Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 
@@ -99,7 +103,8 @@ Bridge.a(t, x, ℙ::JansenRitDiffusionAux) = Bridge.a(t,ℙ)
 
 
 
-mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * X[:,5]
+mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * view(X, :, 5) #  ℙ̃.σy * X[:,5]
+mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = [X[1,5], X[2,5], X[3,5], X[4,5],ℙ̃.σy * X[5,5], X[6,5]]
 mulax(x,  ℙ̃::JansenRitDiffusionAux) = (x[5] * ℙ̃.σy) * Bridge.σ(0, ℙ̃) 
 trXa(X,  ℙ̃::JansenRitDiffusionAux) = X[5,5] * ℙ̃.σy^2
 dotσx(x,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * x[5]

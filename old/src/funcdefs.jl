@@ -37,6 +37,14 @@ function update_Messagees!(Ms, tup)
 end
 
 
+function parameterkernel(θ, tuningpars, s) 
+    shortrange = rand()>s
+    Δ = shortrange ?  rand(MvNormal(tuningpars.short)) : rand(MvNormal(tuningpars.long))
+    θ + Δ
+  end
+  
+parameterkernel(tuningpars; s=0.33) = (θ) -> parameterkernel(θ, tuningpars, s) 
+  
 
 """
     parupdate!(Msᵒ, θ, pars::ParInfo,  tuningpars)
@@ -191,6 +199,19 @@ end
 
 
    
+
+
+function adjust_PNCparamters(Ps, ρ; thresh=0.25)
+    for i in eachindex(Ps)
+        U = rand()
+        u = ρ * (U<thresh) + (U>=thresh)
+        ui = Ps[i]
+        @set! ui.ρ = u
+        Ps[i] = ui
+    end
+    Ps
+end
+
 
 
 

@@ -1,19 +1,20 @@
 abstract type Solver end
 
+
 struct RK4 <: Solver end
+
+struct Vern7direct{T}
+    tableau::T
+end 
+Vern7direct() = Vern7direct(Vern7Tableau())
+
+
+
 struct DE{T} <: Solver 
     solvertype::T
 end
 
-struct Adaptive <: Solver end
-struct AssumedDensityFiltering{T} <: Solver 
-    solvertype::T
-end
 
-
-abstract type  GuidType end
-struct PCN <: GuidType  end
-struct InnovationsFixed <: GuidType end
 
 
 struct ParInfo
@@ -21,6 +22,17 @@ struct ParInfo
     recomputeguidingterm::Vector{Bool}
 end
   
+
+struct Innovations{T}
+    z::Vector{T}
+    
+   Innovations(z::Vector{T})  where {T} = new{T}(z)
+   function Innovations(timegrid, ℙ) 
+      z = [sample(timegrids[i], wienertype(ℙ)) for i in eachindex(timegrids) ]  # innovations process
+      new{eltype(z)}(z)
+   end
+end  
+
 
 """
     Observation{Tt, Tv, TL, TΣ, Th}
@@ -44,47 +56,6 @@ struct Observation{Tt, Tv, TL, TΣ, Th}
     end    
 end
 
-"""
-    PathInnovation{TX, TW, Tll}
-
-    contains path, innovation and loglikelihood for a segment (=kernel)
-    additionally contains buffers for proposals to be used in a pCN step
-"""
-struct PathInnovation{TX, TW, Tll}
-    X::TX
-    W::TW
-    ll::Tll
-    PathInnovation(X::TX, W::TW, ll::Tll) where {TX, TW, Tll} = new{TX,TW,Tll}(X, W, ll)
-
-    function PathInnovation(x0, M)
-        tt = M.tt
-        W = sample(tt, wienertype(M.ℙ))    
-        X = solve(Euler(), x0, W, M)  # allocation        
-        ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
-        new{typeof(X), typeof(W), typeof(ll)}(X, W, ll)
-    end
-end
-
-
-struct PathInnovationProposal{TX, TW, Tll}
-    X::TX
-    W::TW
-    ll::Tll
-    Wbuf::TW
-    ρ::Float64
-    PathInnovationProposal(X::TX, W::TW, ll::Tll, Wbuf::TW, ρ::Float64) where {TX, Tll, TW} =
-    new{TX,TW,Tll}(X, W, ll, Wbuf, ρ)
-
-    function PathInnovationProposal(P::PathInnovation, ρ)
-       Wbuf = deepcopy(P.W)
-       W = deepcopy(P.W)
-       X = deepcopy(P.X)
-       ll = deepcopy(P.ll)
-       new{typeof(X), typeof(W), typeof(ll)}(X, W, ll, Wbuf, ρ)
-    end
-end
-
-PathInnovation(P::PathInnovationProposal) = PathInnovation(copy(P.X), copy(P.W), P.ll)
 
 
 struct Obs end # for dispatch in Htransform
@@ -123,33 +94,40 @@ end
 
     constructors for solving the backward filtering by numerically approximating ODEs
 """
-struct Message{T,Tℙ,Tℙ̃,TH,TF,TC} <: ContinuousTimeProcess{T}
-    ℙ::Tℙ   
+struct Message{Tℙ̃,TH,TF,TC} 
     ℙ̃::Tℙ̃   
     tt::Vector{Float64}  
     H::Vector{TH}      
     F::Vector{TF}      
     C::TC              
-    Message(ℙ::Tℙ, ℙ̃::Tℙ̃, tt, Ht::Vector{TH}, Ft::Vector{TF}, C::TC) where {Tℙ,Tℙ̃,TH,TF,TC} =
-        new{Bridge.valtype(ℙ),Tℙ,Tℙ̃,TH,TF,TC}(ℙ, ℙ̃, tt, Ht, Ft, C)
+    Message(ℙ̃::Tℙ̃, tt, Ht::Vector{TH}, Ft::Vector{TF}, C::TC) where {Tℙ̃,TH,TF,TC} =
+        new{Tℙ̃,TH,TF,TC}(ℙ̃, tt, Ht, Ft, C)
 
-    # constructor: provide (ℙ, ℙ̃, timegrid HT, FT, CT)    
-    function Message(::RK4, ℙ, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
-        tt = collect(tt_)
-        N = length(tt)
-        Ht = zeros(TH, N)
-        Ft = zeros(TF, N)
-        _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), hT)
-        new{Bridge.valtype(ℙ), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
-    end
- 
-    function Message(D::DE, ℙ, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
+    function Message(D::DE, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
         tt = collect(tt_)
         N = length(tt)
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
         _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Ht, Ft), hT)
-        new{Bridge.valtype(ℙ), typeof(ℙ), typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ, ℙ̃, tt, Ht, Ft, C)
+        new{typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ̃, tt, Ht, Ft, C)
+    end
+
+    function Message(::Vern7direct, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
+        tt = collect(tt_)
+        N = length(tt)
+        Ht = zeros(TH, N)
+        Ft = zeros(TF, N)
+        _, _, C = pbridgeode_HFC!(Vern7direct(), ℙ̃, tt, (Ht, Ft), hT)
+        new{typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ̃, tt, Ht, Ft, C)
+    end
+
+    function Message(::RK4, ℙ̃, tt_, hT::Htransform{TH, TF, TC}) where {TH, TF,TC}
+        tt = collect(tt_)
+        N = length(tt)
+        Ht = zeros(TH, N)
+        Ft = zeros(TF, N)
+        _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), hT)
+        new{typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ̃, tt, Ht, Ft, C)
     end
 end
 
@@ -159,92 +137,23 @@ function Htransform(M::Message)
 end
 
 
-struct ChainState{TM, TP, TPᵒ, THtransform, Tθ}
-    Ms::Vector{TM}
-    Ps::Vector{TP}
-    Msᵒ::Vector{TM}
-    Psᵒ::Vector{TPᵒ}
-    ll::Float64
-    h0::THtransform
-    θ::Tθ
-
-    ChainState(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)  = new{eltype(Ms),eltype(Ps), eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+struct BackwardFilter{T, Th0}
+    Ms::Vector{T}
+    h0::Th0
     
-
-    function ChainState(ρ::Float64, timegrids, obs, ℙ, x0, pars, guidingterm_with_x1; AuxType=JansenRitDiffusionAux)
-        ℙ̃s = AuxType[]
-        n = length(obs)
-        for i in 2:n # skip x0
-          lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], zeros(2) )
-          push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
-        end
-        h0, Ms = backwardfiltering(obs, timegrids, ℙ, ℙ̃s)
-        if guidingterm_with_x1
-            add_deterministicsolution_x1!(Ms, x0)
-            h0 = backwardfiltering!(Ms, obs)
-        end
-        
-        ρs = fill(ρ, length(timegrids))    
-        Ps = forwardguide(x0, Ms);
-        ll = loglik(x0, h0, Ps)
-        θ = getpar(Ms, pars)
-        Psᵒ = [PathInnovationProposal(Ps[i], ρs[i]) for i ∈ eachindex(Ps)] 
-        #Psᵒ[2].W.yy === Ps[2].W.yy 
-        Msᵒ = deepcopy(Ms)
-        new{eltype(Ms), eltype(Ps),  eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
+   BackwardFilter(Ms, h0::Th0)  where {Th0} = new{eltype(Ms), Th0}(Ms, h0)
+   
+   function BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1) 
+        h0, Ms = init_auxiliary_processes(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1)
+        new{eltype(Ms), typeof(h0)}(Ms, h0)
     end
+end  
+
+
+struct State{Tx0, TI, Tθ, Tll}
+    x0::Tx0
+    Z::Innovations{TI}
+    θ::Vector{Tθ}
+    ll::Tll
 end
-
-# import Base.show
-# Base.show(io::IO, S::ChainState)
-#     print(io, S.Ms)
-#     println()
-#     print(io, S.θ)
-# end
-
-
-
-# struct CS{Tℙ, Tℙ̃, TX, TW, TM, Tl, Tl0, THtransform, Tθ}
-#     ℙ::Tℙ
-#     ℙ̃::Vector{Tℙ̃}   
-#     XX::Vector{TX}
-#     WW::Vector{TW}
-#     MM::Vector{TM}
-#     ll::Vector{Tl}
-#     loglik::Tl0
-#     h0::THtransform
-#     θ::Tθ
-    
-#     CS(ℙ, ℙ̃, XX, WW, MM, ll, loglik, h0, θ)  = new{typeof(ℙ), eltype(ℙ̃), eltype(XX),eltype(WW), eltype(MM), eltype(ll), typeof(loglik), typeof(h0), typeof(θ)}(ℙ, ℙ̃, XX, WW, MM, ll, loglik, h0, θ)
-    
-#     function ChainState(ρ::Float64, timegrids, obs, ℙ, x0, pars, guidingterm_with_x1; AuxType=JansenRitDiffusionAux)
-#         ℙ̃ = AuxType[]
-#         n = length(obs)
-#         for i in 2:n # skip x0
-#           lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], zeros(2) )
-#           push!(ℙ̃, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
-#         end
-#         h0, MM = backwardfiltering(obs, timegrids, ℙ, ℙ̃)
-#         if guidingterm_with_x1
-#             add_deterministicsolution_x1!(MM, x0)
-#             h0 = backwardfiltering!(MM, obs)
-#         end
-        
-#         ρs = fill(ρ, length(timegrids))    
-#         xend = x0
-#         for i in eachindex(timegrids)
-#             tt = timegrids[i]
-#             W = sample(tt, wienertype(ℙ))    
-#             X = solve(Euler(), xend, W, M)  # allocation        
-#         ll = llikelihood(Bridge.LeftRule(), X, M, skip=sk)
-
-
-#         Ps = forwardguide(x0, Ms);
-#         ll = loglik(x0, h0, Ps)
-#         θ = getpar(Ms, pars)
-#         Psᵒ = [PathInnovationProposal(Ps[i], ρs[i]) for i ∈ eachindex(Ps)] 
-#         #Psᵒ[2].W.yy === Ps[2].W.yy 
-#         Msᵒ = deepcopy(Ms)
-#         new{eltype(Ms), eltype(Ps),  eltype(Psᵒ), typeof(h0), typeof(θ)}(Ms, Ps, Msᵒ, Psᵒ, ll, h0, θ)
-#     end
-# end
+  
