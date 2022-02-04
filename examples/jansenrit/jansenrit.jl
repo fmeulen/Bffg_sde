@@ -103,11 +103,11 @@ Bridge.a(t, x, ℙ::JansenRitDiffusionAux) = Bridge.a(t,ℙ)
 
 
 
-mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * view(X, :, 5) #  ℙ̃.σy * X[:,5]
-mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = [X[1,5], X[2,5], X[3,5], X[4,5],ℙ̃.σy * X[5,5], X[6,5]]
-mulax(x,  ℙ̃::JansenRitDiffusionAux) = (x[5] * ℙ̃.σy) * Bridge.σ(0, ℙ̃) 
-trXa(X,  ℙ̃::JansenRitDiffusionAux) = X[5,5] * ℙ̃.σy^2
-dotσx(x,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * x[5]
+# mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * view(X, :, 5) #  ℙ̃.σy * X[:,5]
+# mulXσ(X,  ℙ̃::JansenRitDiffusionAux) = [X[1,5], X[2,5], X[3,5], X[4,5],ℙ̃.σy * X[5,5], X[6,5]]
+# mulax(x,  ℙ̃::JansenRitDiffusionAux) = (x[5] * ℙ̃.σy) * Bridge.σ(0, ℙ̃) 
+# trXa(X,  ℙ̃::JansenRitDiffusionAux) = X[5,5] * ℙ̃.σy^2
+# dotσx(x,  ℙ̃::JansenRitDiffusionAux) = ℙ̃.σy * x[5]
 
 
 
