@@ -75,26 +75,61 @@ Tableau of coefficients for the `Vern7` ODE solver
 
 tableau = Vern7Tableau()
 
-function vern7(f, t, y, dt, P, tableau)
+# function vern7(f, t, y, dt, P, tableau)
+#     (@unpack c₂,c₃,c₄,c₅,c₆,c₇,c₈,a₂₁,a₃₁,a₃₂,a₄₁,a₄₃,a₅₁,a₅₃,a₅₄,a₆₁,a₆₃,a₆₄,
+#              a₆₅,a₇₁,a₇₃,a₇₄,a₇₅,a₇₆,a₈₁,a₈₃,a₈₄,a₈₅,a₈₆,a₈₇,a₉₁,a₉₃,a₉₄,a₉₅,
+#              a₉₆,a₉₇,a₉₈,b₁,b₄,b₅,b₆,b₇,b₈,b₉ = tableau)
+#     k1 = f(t, y, P)
+#     k2 = f(t + c₂*dt, y + dt*a₂₁*k1, P)
+#     k3 = f(t + c₃*dt, y + dt*(a₃₁*k1 + a₃₂*k2), P)
+#     k4 = f(t + c₄*dt, y + dt*(a₄₁*k1 +        + a₄₃*k3), P)
+#     k5 = f(t + c₅*dt, y + dt*(a₅₁*k1 +        + a₅₃*k3 + a₅₄*k4), P)
+#     k6 = f(t + c₆*dt, y + dt*(a₆₁*k1 +        + a₆₃*k3 + a₆₄*k4 + a₆₅*k5), P)
+#     k7 = f(t + c₇*dt, y + dt*(a₇₁*k1 +        + a₇₃*k3 + a₇₄*k4 + a₇₅*k5
+#                               + a₇₆*k6), P)
+#     k8 = f(t + c₈*dt, y + dt*(a₈₁*k1 +        + a₈₃*k3 + a₈₄*k4 + a₈₅*k5
+#                               + a₈₆*k6 + a₈₇*k7), P)
+#     k9 = f(t + dt, y + dt*(a₉₁*k1 +        + a₉₃*k3 + a₉₄*k4 + a₉₅*k5
+#                            + a₉₆*k6 + a₉₇*k7 + a₉₈*k8), P)
+#     y + dt*(b₁*k1 + b₄*k4 + b₅*k5 + b₆*k6 + b₇*k7 + b₈*k8 + b₉*k9)
+# end
+
+
+# function vern7(f, t, y, dt, P, tableau)
+#     (@unpack c₂,c₃,c₄,c₅,c₆,c₇,c₈,a₂₁,a₃₁,a₃₂,a₄₁,a₄₃,a₅₁,a₅₃,a₅₄,a₆₁,a₆₃,a₆₄,
+#              a₆₅,a₇₁,a₇₃,a₇₄,a₇₅,a₇₆,a₈₁,a₈₃,a₈₄,a₈₅,a₈₆,a₈₇,a₉₁,a₉₃,a₉₄,a₉₅,
+#              a₉₆,a₉₇,a₉₈,b₁,b₄,b₅,b₆,b₇,b₈,b₉ = tableau)
+#     k1 = f(t, y, P)
+#     k2 = f(t + c₂*dt, y + dt*a₂₁*k1, P)
+#     k3 = f(t + c₃*dt, y + dt*(a₃₁*k1 + a₃₂*k2), P)
+#     k4 = f(t + c₄*dt, y + dt*(a₄₁*k1 +         a₄₃*k3), P)
+#     k5 = f(t + c₅*dt, y + dt*(a₅₁*k1 +         a₅₃*k3 + a₅₄*k4), P)
+#     k6 = f(t + c₆*dt, y + dt*(a₆₁*k1 +         a₆₃*k3 + a₆₄*k4 + a₆₅*k5), P)
+#     k7 = f(t + c₇*dt, y + dt*(a₇₁*k1 +         a₇₃*k3 + a₇₄*k4 + a₇₅*k5 + a₇₆*k6), P)
+#     k8 = f(t + c₈*dt, y + dt*(a₈₁*k1 +         a₈₃*k3 + a₈₄*k4 + a₈₅*k5 + a₈₆*k6 + a₈₇*k7), P)
+#     k9 = f(t + dt, y + dt*(a₉₁*k1 +         a₉₃*k3 + a₉₄*k4 + a₉₅*k5 + a₉₆*k6 + a₉₇*k7 + a₉₈*k8), P)
+#     y + dt*(b₁*k1 + b₄*k4 + b₅*k5 + b₆*k6 + b₇*k7 + b₈*k8 + b₉*k9)
+# end
+
+
+function vern7(f, t, y::T, dt, P, tableau) where {T}
     (@unpack c₂,c₃,c₄,c₅,c₆,c₇,c₈,a₂₁,a₃₁,a₃₂,a₄₁,a₄₃,a₅₁,a₅₃,a₅₄,a₆₁,a₆₃,a₆₄,
              a₆₅,a₇₁,a₇₃,a₇₄,a₇₅,a₇₆,a₈₁,a₈₃,a₈₄,a₈₅,a₈₆,a₈₇,a₉₁,a₉₃,a₉₄,a₉₅,
              a₉₆,a₉₇,a₉₈,b₁,b₄,b₅,b₆,b₇,b₈,b₉ = tableau)
-    k1 = f(t, y, P)
-    k2 = f(t + c₂*dt, y + dt*a₂₁*k1, P)
-    k3 = f(t + c₃*dt, y + dt*(a₃₁*k1 + a₃₂*k2), P)
-    k4 = f(t + c₄*dt, y + dt*(a₄₁*k1 +        + a₄₃*k3), P)
-    k5 = f(t + c₅*dt, y + dt*(a₅₁*k1 +        + a₅₃*k3 + a₅₄*k4), P)
-    k6 = f(t + c₆*dt, y + dt*(a₆₁*k1 +        + a₆₃*k3 + a₆₄*k4 + a₆₅*k5), P)
-    k7 = f(t + c₇*dt, y + dt*(a₇₁*k1 +        + a₇₃*k3 + a₇₄*k4 + a₇₅*k5
+    k1::T = f(t, y, P)
+    k2::T = f(t + c₂*dt, y + dt*a₂₁*k1, P)
+    k3::T = f(t + c₃*dt, y + dt*(a₃₁*k1 + a₃₂*k2), P)
+    k4::T = f(t + c₄*dt, y + dt*(a₄₁*k1          + a₄₃*k3), P)
+    k5::T = f(t + c₅*dt, y + dt*(a₅₁*k1          + a₅₃*k3 + a₅₄*k4), P)
+    k6::T = f(t + c₆*dt, y + dt*(a₆₁*k1          + a₆₃*k3 + a₆₄*k4 + a₆₅*k5), P)
+    k7::T = f(t + c₇*dt, y + dt*(a₇₁*k1          + a₇₃*k3 + a₇₄*k4 + a₇₅*k5
                               + a₇₆*k6), P)
-    k8 = f(t + c₈*dt, y + dt*(a₈₁*k1 +        + a₈₃*k3 + a₈₄*k4 + a₈₅*k5
+    k8::T = f(t + c₈*dt, y + dt*(a₈₁*k1          + a₈₃*k3 + a₈₄*k4 + a₈₅*k5
                               + a₈₆*k6 + a₈₇*k7), P)
-    k9 = f(t + dt, y + dt*(a₉₁*k1 +        + a₉₃*k3 + a₉₄*k4 + a₉₅*k5
+    k9::T = f(t + dt, y + dt*(a₉₁*k1          + a₉₃*k3 + a₉₄*k4 + a₉₅*k5
                            + a₉₆*k6 + a₉₇*k7 + a₉₈*k8), P)
-    y + dt*(b₁*k1 + b₄*k4 + b₅*k5 + b₆*k6 + b₇*k7 + b₈*k8 + b₉*k9)
+    (y + dt*(b₁*k1 + b₄*k4 + b₅*k5 + b₆*k6 + b₇*k7 + b₈*k8 + b₉*k9))::T
 end
-
-
 
 
 

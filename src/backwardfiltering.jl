@@ -132,17 +132,17 @@ function pbridgeode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
         vectorise(dH, dF, dC)
     end
 
-    Ht[end] = hT.H
-    Ft[end] = hT.F
-    C = hT.C
-    #access = Val{}(dim(ℙ̃))
-    access = Val{6}()
+    access = Val{6}()   #access = Val{}(dim(ℙ̃))
     y = vectorise(hT.H, hT.F, hT.C)
-
+    Ht[end], Ft[end], C =  static_accessor_HFc(y, access)
+    
     for i in length(t)-1:-1:1
         dt = t[i] - t[i+1]
-        y = @inferred  vern7(dHFC, t[i+1], y, dt, ℙ̃, S.tableau)
+        y = vern7(dHFC, t[i+1], y, dt, ℙ̃, S.tableau)
+        
         Ht[i], Ft[i], C = static_accessor_HFc(y, access)
+
+        @show C
     end
     Ht, Ft, C
 end

@@ -74,7 +74,7 @@ savefig(joinpath(outdir,"deviations_guidedinitial.png"))
 
 # test
 S = Vern7direct();
- BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
+B= BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
 
 @time BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
 BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
