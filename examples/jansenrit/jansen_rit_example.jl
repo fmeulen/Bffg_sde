@@ -37,7 +37,8 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 include("plotting.jl")
 
 ################################  TESTING  ################################################
-S = Vern7direct()  # solver for backward ODEs
+#S = Vern7direct()  # solver for backward ODEs
+S = DE(Vern7())
 
 include("generatedata.jl")
 

@@ -120,16 +120,20 @@ function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior; verbose=true)
     accpar_ = false
     θᵒ = K(θ)   
                 # if guiding term needs to be recomputed:
-                # construct ℙᵒ =  setpar(θᵒ, ℙ, pars),
-                # compute Bᵒ = BackwardFilter(ℙᵒ, AuxType, obs, timegrids, x0, false);
-                # XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ, pars)(x0, θᵒ, Z);
+                # construct 
+    recompguidingterm = true
+    if recompguidingterm            
+        ℙᵒ =  setpar(θᵒ, ℙ, pars),
+        Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, timegrids, x0, false);
+        XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ, pars)(x0, θᵒ, Z);
+    end
     XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
     !verbose && printinfo(ll, llᵒ, "par") 
     if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
       @. XX = XXᵒ
       ll = llᵒ
       @. θ = θᵒ
-                # B = Bᵒ
+      recompguidingterm && (B = Bᵒ)
       accpar_ = true
       !verbose && print("✓")  
     end

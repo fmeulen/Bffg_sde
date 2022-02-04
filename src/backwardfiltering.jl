@@ -14,49 +14,24 @@ function static_accessor_HFc(u::K, ::Val{T}) where {K<:Union{SVector,MVector},T}
     reshape(u[Hidx], Size(T,T)), u[Fidx], u[T*T+T+1]
 end
 
+dHFC_DE(y, ℙ̃, s) = dHFC(s, y, ℙ̃)
 
 function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
-    function dHFC(y, ℙ̃, s) # note interchanged order of arguments
-        access = Val{}(dim(ℙ̃))
-        
-        H, F, C = static_accessor_HFc(y, access)
-        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
-    
-        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
-        dF = - (_B' * F) + H * (_a * F + _β) 
-        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
-        vectorise(dH, dF, dC)
-    end
-
-    # specialised function for JansenRitDiffusionAux
-    # function dHFC(y, ℙ̃::JansenRitDiffusionAux, s) # note interchanged order of arguments
-    #     access = Val{}(dim(ℙ̃))
-    #     H, F, _ = static_accessor_HFc(y, access)
-    #     _B, _β = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃)
-     
-    #     dH = - (_B' * H)  - (H * _B) + Bridge.outer( mulXσ(H, ℙ̃) )
-    #     dF = - (_B' * F) + H * (mulax(F, ℙ̃)  + _β) 
-    #     dC = dot(_β, F) + 0.5* dotσx(F, ℙ̃)^2 - 0.5* trXa(H, ℙ̃)
-    #     vectorise(dH, dF, dC)
-    # end
-
-    
-    
-    yT = vectorise(hT.H, hT.F, hT.C)
-    prob = ODEProblem{false}(
-            dHFC,   # increment
-            yT, # starting val
-            (tt[end], tt[1]),   # time interval
-            ℙ̃)  # parameter
     access = Val{}(dim(ℙ̃))
-    
     TP = typeof(hT.H); Tν= typeof(hT.F); Tc = typeof(hT.C)
     saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
+
+    yT = vectorise(hT.H, hT.F, hT.C)
+    prob = ODEProblem{false}(
+            dHFC_DE,                    # increment
+            yT,                         # starting val
+            (tt[end], tt[1]),           # time interval
+            ℙ̃)                          # parameter
+    
     callback = SavingCallback(
         (u,t,integrator) -> static_accessor_HFc(u, access),
         saved_values;
         saveat=reverse(tt), 
-    #    saveat=tt, 
         tdir=-1
     )
     integrator = init(
@@ -65,51 +40,39 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
         callback=callback,
         save_everystep=false, # to prevent wasting memory allocations
     )
-    sol = DifferentialEquations.solve!(integrator)   # s
-    
-    #  savedt = saved_values.t
-    ss = saved_values.saveval
-    reverse!(ss)
-    Ht .= getindex.(ss,1)
-    Ft .= getindex.(ss,2)
-    C = getindex(ss[end],3)
+#    sol = DifferentialEquations.solve!(integrator)   # s
+ 
+    DifferentialEquations.solve!(integrator)   # s
+    ss = saved_values.saveval  # these are in reversed order, so C is obtained from the last index and for Ht and Ft we need to reverse
+    #reverse!(ss)      #Ht .= getindex.(ss,1)      #Ft .= getindex.(ss,2)
+    for i in eachindex(ss)
+        Ht[end-i+1] = ss[i][1]
+        Ft[end-i+1] = ss[i][2]
+    end
+    C = ss[end][3]  
     Ht, Ft, C
 end
 
-"""
-    kernelrk4(f, t, y, dt, ℙ)
+function dHFC(s, y, ℙ̃)
+    #access = Val{}(dim(ℙ̃))  #
+    access = Val{6}()
+    H, F, _ = static_accessor_HFc(y, access)
+    _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
-    solver for Runge-Kutta 4 scheme
-"""
-function kernelrk4(f, t, y, dt, ℙ)
-    k1 = f(t, y, ℙ)
-    k2 = f(t + 0.5*dt, y + 0.5*k1*dt, ℙ)
-    k3 = f(t + 0.5*dt, y + 0.5*k2*dt, ℙ)
-    k4 = f(t + dt, y + k3*dt, ℙ)
-    y + dt*(k1 + 2*k2 + 2*k3 + k4)/6.0
+    dH = (- (_B' * H)  - (H * _B) + Bridge.outer( H * _σ))
+    dF  = (- (_B' * F) + H * (_a * F + _β) )
+    dC =  (dot(_β, F) + 0.5*dot(F,_a, F) - 0.5*tr( (H* (_a))))
+    #U = (F' * _σ) ;  dC =  (dot(_β, F) + 0.5*dot(U,U) - 0.5*tr( (H* (_a))))
+    vectorise(dH, dF, dC)
 end
 
 
+
 function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
-    function dHFC(s, y, ℙ̃)
-        access = Val{}(dim(ℙ̃))
-        
-        H, F, _ = static_accessor_HFc(y, access)
-        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
-
-        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
-        dF = - (_B' * F) + H * (_a * F + _β) 
-        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
-        vectorise(dH, dF, dC)
-    end
-
-    Ht[end] = hT.H
-    Ft[end] = hT.F
-    C = hT.C
-    access = Val{}(dim(ℙ̃))
-    
+    access = Val{}(dim(ℙ̃))  ##access = Val{6}()   
     y = vectorise(hT.H, hT.F, hT.C)
-
+    Ht[end], Ft[end], C =  static_accessor_HFc(y, access)
+    
     for i in length(t)-1:-1:1
         dt = t[i] - t[i+1]
         y = kernelrk4(dHFC, t[i+1], y, dt, ℙ̃)
@@ -118,34 +81,19 @@ function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
     Ht, Ft, C
 end
 
-
 function pbridgeode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
-    function dHFC(s, y, ℙ̃)
-        #access = Val{}(dim(ℙ̃))
-        access = Val{6}()
-        H, F, _ = static_accessor_HFc(y, access)
-        _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
-
-        dH = - (_B' * H)  - (H * _B) + Bridge.outer( H * _σ)
-        dF = - (_B' * F) + H * (_a * F + _β) 
-        dC = dot(_β, F) + 0.5*Bridge.outer(F' * _σ) - 0.5*tr( (H* (_a)))
-        vectorise(dH, dF, dC)
-    end
-
-    access = Val{6}()   #access = Val{}(dim(ℙ̃))
+    access = Val{}(dim(ℙ̃))  ##access = Val{6}()   
     y = vectorise(hT.H, hT.F, hT.C)
     Ht[end], Ft[end], C =  static_accessor_HFc(y, access)
     
     for i in length(t)-1:-1:1
         dt = t[i] - t[i+1]
         y = vern7(dHFC, t[i+1], y, dt, ℙ̃, S.tableau)
-        
         Ht[i], Ft[i], C = static_accessor_HFc(y, access)
-
-        @show C
     end
     Ht, Ft, C
 end
+
 
 
 
@@ -231,8 +179,6 @@ function add_deterministicsolution_x1!(Ms::Vector{Message}, x0)
         Ms[i] = u 
     end
 end
-
-
 # tt = [Ms[i].tt for i in eachindex(Ps)]
 # yy = [Ms[i].ℙ̃.x1(tt[i]) for i in eachindex(Ps)]
 # p = plot_(Ps,1)

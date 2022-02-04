@@ -76,8 +76,6 @@ function Bridge.B(t, ℙ::JansenRitDiffusionAux)
                 0.0 0.0 -ℙ.b^2 0.0 0.0 -2.0*ℙ.b]
 end
 
-# Bridge.B(t, ℙ::JansenRitDiffusionAux) = sparse([1, 2, 3, 4, 4, 5, 5, 6, 6], [4, 5, 6, 1, 4, 2, 5, 3, 6], [1.0, 1.0, 1.0,-ℙ.a^2, -2.0ℙ.a,-ℙ.a^2, -2.0ℙ.a, -ℙ.b^2, -2.0ℙ.b])
-# Ssparse = SparseVector(6, [5], [ℙ.σy] )
 
 
 
@@ -98,7 +96,12 @@ dim(::JansenRitDiffusionAux) = 6
 
 # standardfunctions (no adjustment needed)
 Bridge.b(t, x, ℙ::JansenRitDiffusionAux) = Bridge.B(t,ℙ) * x + Bridge.β(t,ℙ)
-Bridge.a(t, ℙ::JansenRitDiffusionAux) = Bridge.σ(t,ℙ) * Bridge.σ(t,  ℙ)'
+Bridge.a(t, ℙ::JansenRitDiffusionAux) =   @SMatrix [  0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 ℙ.σy^2 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0]
 Bridge.a(t, x, ℙ::JansenRitDiffusionAux) = Bridge.a(t,ℙ) 
 
 
