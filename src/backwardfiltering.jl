@@ -18,6 +18,7 @@ end
 function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
     function dHFC(y, ℙ̃, s) # note interchanged order of arguments
         access = Val{}(dim(ℙ̃))
+        
         H, F, C = static_accessor_HFc(y, access)
         _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
     
@@ -48,6 +49,7 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
             (tt[end], tt[1]),   # time interval
             ℙ̃)  # parameter
     access = Val{}(dim(ℙ̃))
+    
     TP = typeof(hT.H); Tν= typeof(hT.F); Tc = typeof(hT.C)
     saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
     callback = SavingCallback(
@@ -91,6 +93,7 @@ end
 function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
     function dHFC(s, y, ℙ̃)
         access = Val{}(dim(ℙ̃))
+        
         H, F, _ = static_accessor_HFc(y, access)
         _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
@@ -104,6 +107,7 @@ function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
     Ft[end] = hT.F
     C = hT.C
     access = Val{}(dim(ℙ̃))
+    
     y = vectorise(hT.H, hT.F, hT.C)
 
     for i in length(t)-1:-1:1
@@ -117,7 +121,8 @@ end
 
 function pbridgeode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
     function dHFC(s, y, ℙ̃)
-        access = Val{}(dim(ℙ̃))
+        #access = Val{}(dim(ℙ̃))
+        access = Val{6}()
         H, F, _ = static_accessor_HFc(y, access)
         _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
@@ -130,12 +135,13 @@ function pbridgeode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
     Ht[end] = hT.H
     Ft[end] = hT.F
     C = hT.C
-    access = Val{}(dim(ℙ̃))
+    #access = Val{}(dim(ℙ̃))
+    access = Val{6}()
     y = vectorise(hT.H, hT.F, hT.C)
 
     for i in length(t)-1:-1:1
         dt = t[i] - t[i+1]
-        y = vern7(dHFC, t[i+1], y, dt, ℙ̃, S.tableau)
+        y = @inferred  vern7(dHFC, t[i+1], y, dt, ℙ̃, S.tableau)
         Ht[i], Ft[i], C = static_accessor_HFc(y, access)
     end
     Ht, Ft, C
@@ -158,8 +164,8 @@ fusion_HFC(h1, h2) = Htransform(h1.H + h2.H, h1.F + h2.F, h1.C + h2.C)
 function backwardfiltering(S,obs, timegrids, ℙ̃s)
     n = length(obs)-1
     hT = obs[end].h
-    Ms = Message[]
-    for i in n:-1:1
+    Ms = [Message(S, ℙ̃s[n], timegrids[n], hT) ]
+    for i in (n-1):-1:1
         M = Message(S, ℙ̃s[i], timegrids[i], hT) 
         pushfirst!(Ms, M)
         hT = fusion_HFC(Htransform(M), obs[i].h)
@@ -234,10 +240,12 @@ end
 
 
 function init_auxiliary_processes(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
-    ℙ̃s = AuxType[]
+    i=2
+    lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
+    ℙ̃s = [AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ)]
     n = length(obs)
-    for i in 2:n # skip x0
-      lininterp = LinearInterpolation([obs[i-1].t,obs[i].t], [x1_init, x1_init] )
+    for i in 3:n # skip x0
+      lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
       push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
     end
     h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
@@ -247,3 +255,4 @@ function init_auxiliary_processes(S, ℙ, AuxType, obs, timegrids, x0, guidingte
     end
     h0, Ms
 end
+

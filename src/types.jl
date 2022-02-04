@@ -152,7 +152,7 @@ end
 
 struct State{Tx0, TI, Tθ, Tll}
     x0::Tx0
-    Z::Innovations{TI}
+    Z::TI#Innovations{TI}
     θ::Vector{Tθ}
     ll::Tll
 end

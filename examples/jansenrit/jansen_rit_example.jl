@@ -104,7 +104,7 @@ accpare = 0
 accmove = 0
 
 
-exploring = State[]
+exploring = [State(x0, copy(Ze), copy(θe), copy(lle))]
 
 for i in 1:iterations
   (i % 500 == 0) && println(i)

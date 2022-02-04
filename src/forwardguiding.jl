@@ -110,8 +110,8 @@ copy(Z::Innovations) = Innovations(deepcopy(Z.z))
 function checkstate(w,B, ℙ, pars)
     _, ll = forwardguide(B, ℙ, pars)(x0, w.θ, w.Z)
     w.ll ==ll, w.ll-ll
-  end
-  checkstate(B, ℙ, pars) = (w) -> checkstate(w,B, ℙ, pars)
+end
+checkstate(B, ℙ, pars) = (w) -> checkstate(w,B, ℙ, pars)
 
 
 
@@ -129,6 +129,7 @@ function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior; verbose=true)
       @. XX = XXᵒ
       ll = llᵒ
       @. θ = θᵒ
+                # B = Bᵒ
       accpar_ = true
       !verbose && print("✓")  
     end
