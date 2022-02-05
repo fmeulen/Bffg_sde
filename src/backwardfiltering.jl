@@ -185,14 +185,14 @@ end
 # plot!(p,vcat(tt...), vcat(yy...),color="grey")
 
 
-function init_auxiliary_processes(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
+function init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
     i=2
     lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
-    ℙ̃s = [AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ)]
+    ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ)] # careful here: observation is passed as Float64
     n = length(obs)
     for i in 3:n # skip x0
       lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
-      push!(ℙ̃s, AuxType(obs[i].t, obs[i].v[1], lininterp, false, ℙ))
+      push!(ℙ̃s, AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ))  # careful here: observation is passed as Float64
     end
     h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
     if guidingterm_with_x1
