@@ -41,13 +41,6 @@ lastval(X::SamplePath) = X.yy[end]
 
 
 
-   
-
-
-
-
-
-
 """
     init_HFC(v, L, d; ϵ=0.01)
 

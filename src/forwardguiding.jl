@@ -114,33 +114,33 @@ end
 checkstate(B, ℙ, pars) = (w) -> checkstate(w,B, ℙ, pars)
 
 
+recomp(pars) = maximum(pars.recomputeguidingterm)
 
 # par updating, θ and XX are overwritten when accepted
-function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior; verbose=true)
+function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals; verbose=true)
     accpar_ = false
     θᵒ = K(θ)   
-                # if guiding term needs to be recomputed:
-                # construct 
-    recompguidingterm = true
-    if recompguidingterm            
-        ℙᵒ =  setpar(θᵒ, ℙ, pars),
-        Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, timegrids, x0, false);
-        XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ, pars)(x0, θᵒ, Z);
+    recompguidingterm = recomp(pars)
+    if recompguidingterm        
+        ℙᵒ = setpar(θᵒ, ℙ, pars)    
+        Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids, x0, false);
+    else 
+        Bᵒ = B
     end
-    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
+    XXᵒ, llᵒ = forwardguide(Bᵒ, ℙ, pars)(x0, θᵒ, Z);
     !verbose && printinfo(ll, llᵒ, "par") 
-    if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
+    if log(rand()) < llᵒ-ll + logpdf(Prior, θᵒ) - logpdf(Prior, θ)
       @. XX = XXᵒ
       ll = llᵒ
       @. θ = θᵒ
-      recompguidingterm && (B = Bᵒ)
+      B = Bᵒ
       accpar_ = true
       !verbose && print("✓")  
     end
-    ll, accpar_
+    ll, B, accpar_
 end
 
-parupdate!(B, ℙ, pars, XX, K, Prior; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior; verbose=verbose)
+parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals; verbose=verbose)
 
 
 # innov updating, XX and Z may get overwritten
@@ -161,11 +161,11 @@ end
 
 pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll) ->    pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
 
-function exploremove!(B, ℙ, Be, ℙe, x0, θ, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
+function exploremove!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
     accswap_ = false
     copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
     θᵒ = copy(w.θ)
-    XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
+    XXᵒ, llᵒ = forwardguide(B, ℙ, parse)(x0, θᵒ, Zᵒ);  # this is subtle only update C, that why parse and not pars
     # compute log proposalratio
     _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
     #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
@@ -182,54 +182,19 @@ function exploremove!(B, ℙ, Be, ℙe, x0, θ, Z, ll, XX, Zᵒ, w; verbose=true
     ll, accswap_
 end
 
-exploremove!(B, ℙ, Be, ℙe, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremove!(B, ℙ, Be, ℙe, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
+exploremove!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremove!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
 
 
 
+# θ = [40.0, 1500.0]
+# ℙᵒ = setpar(θ, ℙ, pars)    
+# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, timegrids, x0, false);
+# XX, ll = forwardguide(Bᵒ, ℙ, pars)(x0, θ, Z);
+# θ, ll
 
-
-
-
-  # θᵒ = K(θ)  
-  # XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Z);
-  # !verbose && printinfo(ll, llᵒ, "par") 
-  # if log(rand()) < llᵒ-ll + (logpdf(Prior, θᵒ) - logpdf(Prior, θ))[1]
-  #   XX, XXᵒ = XXᵒ, XX
-  #   ll = llᵒ
-  #   θ .= θᵒ
-  #   accpar += 1
-  #   !verbose && print("✓")  
-  # end
-
-
-    # pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
-  # XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
-  # !verbose && printinfo(ll, llᵒ, "pCN") 
-  #   if log(rand()) < llᵒ-ll
-  #     XX, XXᵒ = XXᵒ, XX
-  #     copy!(Z, Zᵒ)
-  #     ll = llᵒ
-  #     accinnov +=1
-  #     !verbose && print("✓")  
-  #   end
-
-  
-  
-    # # checkstate(Be, ℙe, pars)(w)
-    # copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
-    # θᵒ = copy(w.θ)
-    # XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θᵒ, Zᵒ);
-    # # compute log proposalratio
-    # _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
-    # #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
-    # llproposalᵒ = w.ll
-    # A = llᵒ -ll + llproposal - llproposalᵒ 
-    # if log(rand()) < A
-    #   @. XX = XXᵒ
-    #   copy!(Z, Zᵒ)
-    #   ll = llᵒ
-    #   @. θ = θᵒ
-    #   accswap +=1
-    #   !verbose && print("✓")  
-    # end
+# θᵒ = K(θ)   
+# ℙᵒ = setpar(θᵒ, ℙ, pars)    
+# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, timegrids, x0, false);
+# XXᵒ, llᵒ = forwardguide(Bᵒ, ℙ, pars)(x0, θᵒ, Z);
+# θᵒ, llᵒ, llᵒ - ll
 

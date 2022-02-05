@@ -48,33 +48,44 @@ include("generatedata.jl")
 # settings
 verbose = true # if true, surpress output written to console
 
-pars = ParInfo([:C], [false])
 θinit = 30.0
-θ = [θinit+400.0] # initial value for parameter
+
+pars = ParInfo([:C], [false])#
+θ = [θinit]#, 1500.0] # initial value for parameter
+K = parameterkernel((short=[2.0], long=[10.0]))  
+
+
+# pars = ParInfo([:C, :σy], [false, true])
+# θ = [θinit, 1500.0] 
+# K = parameterkernel((short=[2.0, 1.0], long=[10.0, 10.0]); s=0.0) # always use short-range proposal kernel  
+
 θe = [θinit]
+𝒯 = 2.0 # temperature
+ℙe = setproperties(ℙ, σy = 𝒯*ℙ.σy)
+Ke = parameterkernel((short=[10.0], long=[100.0]))  
+parse = ParInfo([:C], [false])
 
 timegrids = set_timegrids(obs, 0.0005)
 
-iterations = 5_000
+iterations = 15_000
 skip_it = 200
 subsamples = 0:skip_it:iterations # for saving paths
 
-Prior = Exponential(150.0)
+priorC = Exponential(150.0)
+priorσy = Uniform(100.0, 10_000.0)
 
-# target chain 
+Prior = product_distribution([priorC])#, priorσy])
+Priore = product_distribution([priorC])
+
+
+# pcn pars 
 ρ = 0.95
-K = parameterkernel((short=[2.0], long=[10.0]); s=0.0) # always use short-range proposal kernel  
-
-# exploring chain
 ρe = 0.95
-𝒯 = 2.0 # temperature
-Ke = parameterkernel((short=[10.0], long=[100.0]))  
 
-ℙe = setproperties(ℙ, σy = 𝒯*ℙ.σy)
 
 
 # initialisation of target chain 
-B = BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
+B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
 Z = Innovations(timegrids, ℙ);
 Zbuffer = deepcopy(Z)
 Zᵒ = deepcopy(Z)
@@ -82,11 +93,11 @@ Zᵒ = deepcopy(Z)
 XX, ll = forwardguide(B, ℙ, pars)(x0, θ, Z);
 
 # initialisation of exploring chain 
-Be = BackwardFilter(S, ℙe, AuxType, obs, timegrids, x0, false);
+Be = BackwardFilter(S, ℙe, AuxType, obs, obsvals, timegrids, x0, false);
 Ze = Innovations(timegrids, ℙ);
 Zeᵒ = deepcopy(Ze)
 ρse = fill(ρe, length(timegrids))
-XXe, lle = forwardguide(Be, ℙe, pars)(x0, θe, Ze);
+XXe, lle = forwardguide(Be, ℙe, parse)(x0, θe, Ze);
 
 
 
@@ -111,18 +122,18 @@ for i in 1:iterations
   (i % 500 == 0) && println(i)
   
   # update exploring chain
-  lle, accpare_ = parupdate!(Be, ℙe, pars, XXe, Ke, Prior; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
-  lle, accinnove_ = pcnupdate!(Be, ℙe, pars, XXe, Zbuffer, Zeᵒ, ρse)(x0, θe, Ze, lle); # Z and XX may get overwritten
+  lle, Be, accpare_ = parupdate!(Be, ℙe, parse, XXe, Ke, Priore, obs, obsvals; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
+  lle, accinnove_ = pcnupdate!(Be, ℙe, parse, XXe, Zbuffer, Zeᵒ, ρse)(x0, θe, Ze, lle); # Z and XX may get overwritten
   push!(exploring, State(x0, copy(Ze), copy(θe), copy(lle)))   # collection of samples from exploring chain
 
   # update target chain
-  smallworld = rand() >0.33
+  smallworld = rand() > 0.33
   if smallworld
-    ll, accpar_ = parupdate!(B, ℙ, pars, XX, K, Prior; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
+    ll, B, accpar_ = parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
     accmove_ =0
   else
     w = sample(exploring)     # randomly choose from samples of exploring chain
-    ll, accmove_ = exploremove!(B, ℙ, Be, ℙe, XX, Zᵒ, w; verbose=true)(x0, θ, Z, ll) 
+    ll, accmove_ = exploremove!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w; verbose=true)(x0, θ, Z, ll) 
     accpar_ = 0
   end  
   ll, accinnov_ = pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs)(x0, θ, Z, ll); # Z and XX may get overwritten
@@ -166,6 +177,9 @@ plot!(p1,llesave, label="exploring")
 # traceplots
 plot(getindex.(θsave,1), label="target")
 plot!(getindex.(θesave,1), label="exploring")
+
+#plot(getindex.(θsave,2), label="target")
+
 
 
 

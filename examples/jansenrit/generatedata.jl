@@ -1,4 +1,5 @@
 Random.seed!(5)
+#Random.seed!(15)
 
 model= [:jr, :jr3][1]
 
@@ -39,11 +40,18 @@ pF = plot_all(ℙ,  Xf, obstimes, obsvals)
 savefig(joinpath(outdir, "forwardsimulated.png"))
 
 #------- process observations
-obs = [Observation(obstimes[1], obsvals[1], L, Σ)];
+# obs = [Observation(obstimes[1], obsvals[1], L, Σ)];
+# for i in 2:length(obstimes)
+#     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
+# end
+
+# obs = [Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))]
+
+obs = [Observation(obstimes[1],  x0,  SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))]
 for i in 2:length(obstimes)
-    push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
+  push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
 end
-#obs[1] = Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I));
+
 
 
 S = DE(Vern7())
@@ -52,7 +60,7 @@ S = DE(Vern7())
 # remainder is checking 
 
 timegrids = set_timegrids(obs, 0.0005)
-B = BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
+B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
 Z = Innovations(timegrids, ℙ);
 
 # check
@@ -66,8 +74,9 @@ savefig(joinpath(outdir,"forward_guidedinitial_separate.png"))
 plot_all(ℙ,Xf, obstimes, obsvals, timegrids, XX)
 savefig(joinpath(outdir,"forward_guidedinitial_overlaid.png"))
 
-deviations = [obs[i].v - obs[i].L * XX[i-1][end]  for i in 2:length(obs)]
-plot(obstimes[2:end], map(x-> x[1,1], deviations))
+
+deviations = [obsvals[i] - L * XX[i-1][end]  for i in 2:length(obs)]
+plot(obstimes[2:end], first.(deviations))
 savefig(joinpath(outdir,"deviations_guidedinitial.png"))
 
 
@@ -76,11 +85,11 @@ savefig(joinpath(outdir,"deviations_guidedinitial.png"))
 
 # test
 S = Vern7direct();
-@btime BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
+@btime BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
 
 
 S = DE(Vern7())
-@btime  BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
+@btime  BackwardFilter(S, ℙ, AuxType, obs,obsvals, timegrids, x0, false);
 # S = RK4()
 # @btime  BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
 
@@ -90,5 +99,5 @@ using ProfileView
 Profile.init()
 Profile.clear()
 S = DE(Vern7())#S = Vern7direct();
-@profile  BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
+@profile  BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
 ProfileView.view()

@@ -27,7 +27,7 @@ struct Innovations{T}
     z::Vector{T}
     
    Innovations(z::Vector{T})  where {T} = new{T}(z)
-   function Innovations(timegrid, ℙ) 
+   function Innovations(timegrids, ℙ) 
       z = [sample(timegrids[i], wienertype(ℙ)) for i in eachindex(timegrids) ]  # innovations process
       new{eltype(z)}(z)
    end
@@ -40,23 +40,38 @@ end
     (t,v,L,Σ): at time t we have observations v ~ N(Lx_t, Σ)
     h: htransform of the observation 
 """
-struct Observation{Tt, Tv, TL, TΣ, Th}
-    t::Tt
-    v::Tv
-    L::TL
-    Σ::TΣ
-    h::Th
-    Observation(t::Tt, v::Tv, L::TL, Σ::TΣ, h::Th) where {Tt,Tv,TL,TΣ,Th} =
-        new{Tt, Tv, TL, TΣ, Th}(t,v,L,Σ,h)
+# struct Observation{Tt, Tv, TL, TΣ, Th}
+#     t::Tt
+#     v::Tv
+#     L::TL
+#     Σ::TΣ
+#     h::Th
+#     Observation(t::Tt, v::Tv, L::TL, Σ::TΣ, h::Th) where {Tt,Tv,TL,TΣ,Th} =
+#         new{Tt, Tv, TL, TΣ, Th}(t,v,L,Σ,h)
 
+
+#     function Observation(t::Tt, v::Tv, L::TL, Σ::TΣ) where {Tt, Tv, TL, TΣ}
+#         h = Htransform(Obs(), v, L, Σ)
+#         new{Tt, Tv, TL, TΣ, typeof(h)}(t,v,L,Σ,h)
+#     end    
+# end
+
+struct Observation{Tt, Th}
+    t::Tt
+    h::Th
+    Observation(t::Tt,  h::Th) where {Tt,Tv,TL,TΣ,Th} =
+        new{Tt,  Th}(t,h)
 
     function Observation(t::Tt, v::Tv, L::TL, Σ::TΣ) where {Tt, Tv, TL, TΣ}
         h = Htransform(Obs(), v, L, Σ)
-        new{Tt, Tv, TL, TΣ, typeof(h)}(t,v,L,Σ,h)
+        new{Tt, typeof(h)}(t,h)
     end    
 end
 
-
+# a1=Observation2(0.0,  obsvals[1], L, Σ)
+# a2=Observation2(0.0,  x0,  SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))
+# typeof(a1)
+# typeof(a2)
 
 struct Obs end # for dispatch in Htransform
 struct Htransform{TH, TF, TC}
@@ -143,8 +158,8 @@ struct BackwardFilter{T, Th0}
     
    BackwardFilter(Ms, h0::Th0)  where {Th0} = new{eltype(Ms), Th0}(Ms, h0)
    
-   function BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1) 
-        h0, Ms = init_auxiliary_processes(S, ℙ, AuxType, obs, timegrids, x0, guidingterm_with_x1)
+   function BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1) 
+        h0, Ms = init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1)
         new{eltype(Ms), typeof(h0)}(Ms, h0)
     end
 end  
