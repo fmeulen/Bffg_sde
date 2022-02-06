@@ -79,11 +79,14 @@ end
 
 
 
-#Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), μy(t,ℙ), 0.0]
-Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 
-                                    ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), 
-                                    μy(t,ℙ) + ℙ.guidingterm_with_x1 * ℙ.A*ℙ.a*C2(ℙ)* sigm( C1(ℙ)*ℙ.x1(t) , ℙ),
-                                    ℙ.guidingterm_with_x1 * ℙ.B*ℙ.b*C4(ℙ)* sigm( C3(ℙ)*ℙ.x1(t), ℙ)]
+# adjust later, this version should be called if guidingter_with_x1 == true
+# Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 
+#                                     ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), 
+#                                     μy(t,ℙ) + ℙ.guidingterm_with_x1 * ℙ.A*ℙ.a*C2(ℙ)* sigm( C1(ℙ)*ℙ.x1(t) , ℙ),
+#                                     ℙ.guidingterm_with_x1 * ℙ.B*ℙ.b*C4(ℙ)* sigm( C3(ℙ)*ℙ.x1(t), ℙ)]
+
+
+Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0,  ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), μy(t,ℙ), 0.0 ]
 
 
 Bridge.σ(t,  ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0]

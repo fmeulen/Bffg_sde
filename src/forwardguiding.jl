@@ -1,4 +1,4 @@
-logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x + h0.C    
+logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x - h0.C    
 
 function forwardguide(x0, ℙ, Z, M::Message)
     ℙ̃ = M.ℙ̃
@@ -116,31 +116,34 @@ checkstate(B, ℙ, pars) = (w) -> checkstate(w,B, ℙ, pars)
 
 recomp(pars) = maximum(pars.recomputeguidingterm)
 
+
 # par updating, θ and XX are overwritten when accepted
-function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals; verbose=true)
+function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=true)
     accpar_ = false
     θᵒ = K(θ)   
     recompguidingterm = recomp(pars)
     if recompguidingterm        
         ℙᵒ = setpar(θᵒ, ℙ, pars)    
-        Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids, x0, false);
+        Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids);
     else 
         Bᵒ = B
+        ℙᵒ = ℙ
     end
-    XXᵒ, llᵒ = forwardguide(Bᵒ, ℙ, pars)(x0, θᵒ, Z);
+    XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ, pars)(x0, θᵒ, Z);
     !verbose && printinfo(ll, llᵒ, "par") 
     if log(rand()) < llᵒ-ll + logpdf(Prior, θᵒ) - logpdf(Prior, θ)
       @. XX = XXᵒ
       ll = llᵒ
       @. θ = θᵒ
       B = Bᵒ
+      ℙ = ℙᵒ
       accpar_ = true
       !verbose && print("✓")  
     end
-    ll, B, accpar_
+    ll, B, ℙ, accpar_
 end
 
-parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals; verbose=verbose)
+parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=verbose)
 
 
 # innov updating, XX and Z may get overwritten
@@ -165,21 +168,25 @@ function exploremove!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w;
     accswap_ = false
     copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
     θᵒ = copy(w.θ)
-    XXᵒ, llᵒ = forwardguide(B, ℙ, parse)(x0, θᵒ, Zᵒ);  # this is subtle only update C, that why parse and not pars
+    ℙᵒ = setpar(θᵒ, ℙ, parse) 
+    XXᵒ, llᵒ = forwardguide(B, ℙᵒ, parse)(x0, θᵒ, Zᵒ);  # this is subtle only update C, that why parse and not pars
     # compute log proposalratio
-    _, llproposal = forwardguide(Be, ℙe, pars)(x0, θ, Z);
-    #_, llproposalᵒ = forwardguide(Be, ℙe, pars)(x0, θᵒ, Zᵒ);
+    _, llproposal = forwardguide(Be, ℙe, parse)(x0, [θ[1]], Z);
+    #_, llproposalᵒ = forwardguide(Be, ℙe, parse)(x0, θᵒ, Zᵒ);
     llproposalᵒ = w.ll
     A = llᵒ -ll + llproposal - llproposalᵒ 
     if log(rand()) < A
         @. XX = XXᵒ
         copy!(Z, Zᵒ)
         ll = llᵒ
-        @. θ = θᵒ
+        ℙ = ℙᵒ
+        #@. θ = θᵒ
+        θ[1] = θᵒ[1]
+
         accswap_ = true
         !verbose && print("✓")  
     end
-    ll, accswap_
+    ll, ℙ, accswap_
 end
 
 exploremove!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremove!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
@@ -188,13 +195,13 @@ exploremove!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w; verbose=true) = (x0, θ
 
 # θ = [40.0, 1500.0]
 # ℙᵒ = setpar(θ, ℙ, pars)    
-# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, timegrids, x0, false);
+# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids);
 # XX, ll = forwardguide(Bᵒ, ℙ, pars)(x0, θ, Z);
 # θ, ll
 
 # θᵒ = K(θ)   
 # ℙᵒ = setpar(θᵒ, ℙ, pars)    
-# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, timegrids, x0, false);
+# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids);
 # XXᵒ, llᵒ = forwardguide(Bᵒ, ℙ, pars)(x0, θᵒ, Z);
 # θᵒ, llᵒ, llᵒ - ll
 

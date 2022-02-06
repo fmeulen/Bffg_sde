@@ -1,21 +1,13 @@
 abstract type Solver end
 
-
 struct RK4 <: Solver end
-
-struct Vern7direct{T}
+struct Vern7direct{T} #<: Solver
     tableau::T
 end 
 Vern7direct() = Vern7direct(Vern7Tableau())
-
-
-
 struct DE{T} <: Solver 
     solvertype::T
 end
-
-
-
 
 struct ParInfo
     names::Vector{Symbol}
@@ -89,7 +81,7 @@ struct Htransform{TH, TF, TC}
     """
     function Htransform(::Obs, v, L, Σ)
         A = L' * inv(Σ)
-        H, F, C = A * L, A*v, logpdf(Bridge.Gaussian(zero(v), Σ), v) 
+        H, F, C = A * L, A*v, -logpdf(Bridge.Gaussian(zero(v), Σ), v) 
         new{typeof(H), typeof(F), typeof(C)}(H, F, C)
     end
 
@@ -158,11 +150,60 @@ struct BackwardFilter{T, Th0}
     
    BackwardFilter(Ms, h0::Th0)  where {Th0} = new{eltype(Ms), Th0}(Ms, h0)
    
-   function BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1) 
-        h0, Ms = init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1)
+   function BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids) 
+        ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], false, false, ℙ) for i in 2:length(obs)] # careful here: observation is passed as Float64
+        h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
+        new{eltype(Ms), typeof(h0)}(Ms, h0)
+   end
+
+   # the one below is with guiding term based on deterministic solution x1-x4 system
+   function BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0) 
+        x1_init=0.0
+        i=2
+        lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
+        ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], lininterp, true, ℙ)] # careful here: observation is passed as Float64
+        n = length(obs)
+        for i in 3:n # skip x0
+        lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
+        push!(ℙ̃s, AuxType(obs[i].t, obsvals[i][1], lininterp, true, ℙ))  # careful here: observation is passed as Float64
+        end
+        h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
+        if guidingterm_with_x1
+            add_deterministicsolution_x1!(Ms, x0)
+            h0 = backwardfiltering!(S, Ms, obs)
+        end
         new{eltype(Ms), typeof(h0)}(Ms, h0)
     end
 end  
+
+
+
+# function init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
+#     i=2
+#     lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
+#     ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ)] # careful here: observation is passed as Float64
+#     n = length(obs)
+#     for i in 3:n # skip x0
+#       lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
+#       push!(ℙ̃s, AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ))  # careful here: observation is passed as Float64
+#     end
+#     h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
+#     if guidingterm_with_x1
+#         add_deterministicsolution_x1!(Ms, x0)
+#         h0 = backwardfiltering!(S, Ms, obs)
+#     end
+#     h0, Ms
+# end
+
+
+# function init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids) #, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
+#     ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], false, false, ℙ) for i in 2:length(obs)] # careful here: observation is passed as Float64
+#     h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
+#     h0, Ms
+# end
+
+
+
 
 
 struct State{Tx0, TI, Tθ, Tll}

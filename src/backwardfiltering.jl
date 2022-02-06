@@ -115,7 +115,7 @@ function backwardfiltering(S,obs, timegrids, ℙ̃s)
     Ms = [Message(S, ℙ̃s[n], timegrids[n], hT) ]
     for i in (n-1):-1:1
         M = Message(S, ℙ̃s[i], timegrids[i], hT) 
-        pushfirst!(Ms, M)
+        pushfirst!(Ms, M)   
         hT = fusion_HFC(Htransform(M), obs[i].h)
     end
     hT, Ms
@@ -183,22 +183,4 @@ end
 # yy = [Ms[i].ℙ̃.x1(tt[i]) for i in eachindex(Ps)]
 # p = plot_(Ps,1)
 # plot!(p,vcat(tt...), vcat(yy...),color="grey")
-
-
-function init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
-    i=2
-    lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
-    ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ)] # careful here: observation is passed as Float64
-    n = length(obs)
-    for i in 3:n # skip x0
-      lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
-      push!(ℙ̃s, AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ))  # careful here: observation is passed as Float64
-    end
-    h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
-    if guidingterm_with_x1
-        add_deterministicsolution_x1!(Ms, x0)
-        h0 = backwardfiltering!(S, Ms, obs)
-    end
-    h0, Ms
-end
 

@@ -51,7 +51,7 @@ obs = [Observation(obstimes[1],  x0,  SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*
 for i in 2:length(obstimes)
   push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
 end
-
+ℙtrue = ℙ
 
 
 S = DE(Vern7())
@@ -60,7 +60,7 @@ S = DE(Vern7())
 # remainder is checking 
 
 timegrids = set_timegrids(obs, 0.0005)
-B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
+B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids) 
 Z = Innovations(timegrids, ℙ);
 
 # check
@@ -85,14 +85,14 @@ savefig(joinpath(outdir,"deviations_guidedinitial.png"))
 
 # test
 S = Vern7direct();
-@btime BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
+@time BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0);
 
 
 S = DE(Vern7())
-@btime  BackwardFilter(S, ℙ, AuxType, obs,obsvals, timegrids, x0, false);
+@time  BackwardFilter(S, ℙ, AuxType, obs,obsvals, timegrids);
 # S = RK4()
 # @btime  BackwardFilter(S, ℙ, AuxType, obs, timegrids, x0, false);
-
+@time forwardguide(x0, ℙ, Z, B);
 
 using Profile
 using ProfileView
