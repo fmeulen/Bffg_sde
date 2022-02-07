@@ -41,56 +41,55 @@ include("plotting.jl")
 S = DE(Vern7())
 
 #include("generatedata.jl")
+iterations = 10_000  #5_00
+skip_it = 200
+subsamples = 0:skip_it:iterations # for saving paths
 
 
 # a small program
 
 priorC = Exponential(150.0)
-priorσy = Uniform(100.0, 10_000.0)
+priorσy = Normal(1500.0, 500.0)#Uniform(100.0, 3_000.0)
 
 
 
 # settings
 verbose = true # if true, surpress output written to console
 
-ℙ = ℙtrue # for intialisation of other --non estimated-- pars
-θinit = 30.0
-ESTσ = true
+
+θinit = 60.0
+ESTσ = true 
 
 if ESTσ
   pars = ParInfo([:C, :σy], [false, true])
-  θ = [θinit, 1500.0] 
-  K = parameterkernel((short=[2.0, 14.0], long=[10.0, 10.0]); s=0.0) # always use short-range proposal kernel  
+  θ = [copy(θinit), 1500.0] 
+  K = parameterkernel((short=[2.0, 30.0], long=[10.0, 10.0]); s=0.0) # always use short-range proposal kernel  
   Prior = product_distribution([priorC, priorσy])
-  ℙ = setproperties(ℙ, C=θ[1],  σy = θ[2])
 else
   pars = ParInfo([:C], [false])#
-  θ = [θinit] # initial value for parameter
+  θ = [copy(θinit)] # initial value for parameter
   K = parameterkernel((short=[2.0], long=[10.0]))  
   Prior = product_distribution([priorC])
-  ℙ = setproperties(ℙ, C=θ[1])
-end
+  end
+ℙ = setpar(θ, ℙtrue, pars)
 
-
-θe = [θinit]
-𝒯 = 2.0 # temperature
+θe = [copy(θinit)]
+𝒯 = 3.0 # temperature
 ℙe = setproperties(ℙtrue, σy = 𝒯*ℙ.σy)
-Ke = parameterkernel((short=[10.0], long=[100.0]))  
+Ke = parameterkernel((short=[10.0], long=[150.0]))  
 parse = ParInfo([:C], [false])
 Priore = product_distribution([priorC])
+ℙe = setpar(θe, ℙe, parse)
 
 
 timegrids = set_timegrids(obs, 0.0005)
 
-iterations = 15_000
-skip_it = 200
-subsamples = 0:skip_it:iterations # for saving paths
 
 
 
 # pcn pars 
 ρ = 0.95
-ρe = 0.95
+ρe = 0.9
 
 
 
@@ -100,14 +99,15 @@ Z = Innovations(timegrids, ℙ);
 Zbuffer = deepcopy(Z)
 Zᵒ = deepcopy(Z)
 ρs = fill(ρ, length(timegrids))
-XX, ll = forwardguide(B, ℙ, pars)(x0, θ, Z);
+XX, ll = forwardguide(B, ℙ)(x0, Z);
+
 
 # initialisation of exploring chain 
 Be = BackwardFilter(S, ℙe, AuxType, obs, obsvals, timegrids);
 Ze = Innovations(timegrids, ℙ);
 Zeᵒ = deepcopy(Ze)
 ρse = fill(ρe, length(timegrids))
-XXe, lle = forwardguide(Be, ℙe, parse)(x0, θe, Ze);
+XXe, lle = forwardguide(Be, ℙe)(x0, Ze);
 
 
 
@@ -137,14 +137,15 @@ for i in 1:iterations
   push!(exploring, State(x0, copy(Ze), copy(θe), copy(lle)))   # collection of samples from exploring chain
 
   # update target chain
-  smallworld = rand() > 0.33
+  smallworld = rand() > 0#.33
   if smallworld
     ll, B, ℙ, accpar_ = parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
     accmove_ =0
   else
     w = sample(exploring)     # randomly choose from samples of exploring chain
-    ll, ℙ, accmove_ = exploremove!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w; verbose=verbose)(x0, θ, Z, ll) 
+    ll, ℙ,  accmove_ = exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w, Prior; verbose=verbose)(x0, θ, Z, ll) 
     accpar_ = 0
+    #println(ℙ.C ==θ[1])
   end  
   ll, accinnov_ = pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs)(x0, θ, Z, ll); # Z and XX may get overwritten
 
@@ -186,11 +187,11 @@ p1 = plot(llsave, label="target")
 plot!(p1,llesave, label="exploring")    
 
 # traceplots
-pa = plot(getindex.(θsave,1), label="target")
+pa = plot(getindex.(θsave,1), label="target", legend=:top)
 plot!(pa, getindex.(θesave,1), label="exploring")
 
 #plot(getindex.(θsave,2), label="target")
-pb = plot(getindex.(θsave,2), label="target")
+pb = plot(getindex.(θsave,2), label="target", legend=:top)
 plot(pa, pb, layout = @layout [a; b])  
 
 

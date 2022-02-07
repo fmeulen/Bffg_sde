@@ -40,13 +40,6 @@ pF = plot_all(ℙ,  Xf, obstimes, obsvals)
 savefig(joinpath(outdir, "forwardsimulated.png"))
 
 #------- process observations
-# obs = [Observation(obstimes[1], obsvals[1], L, Σ)];
-# for i in 2:length(obstimes)
-#     push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
-# end
-
-# obs = [Observation(obstimes[1], x0, SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))]
-
 obs = [Observation(obstimes[1],  x0,  SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))]
 for i in 2:length(obstimes)
   push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
@@ -64,7 +57,7 @@ B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids)
 Z = Innovations(timegrids, ℙ);
 
 # check
-XX, ll = forwardguide(x0, ℙ, Z, B);
+XX, ll = forwardguide(B, ℙ)(x0, Z);
 
 pG = plot_all(ℙ, timegrids,XX)
 l = @layout [a;b]
