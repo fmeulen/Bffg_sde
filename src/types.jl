@@ -60,10 +60,6 @@ struct Observation{Tt, Th}
     end    
 end
 
-# a1=Observation2(0.0,  obsvals[1], L, Σ)
-# a2=Observation2(0.0,  x0,  SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*I))
-# typeof(a1)
-# typeof(a2)
 
 struct Obs end # for dispatch in Htransform
 struct Htransform{TH, TF, TC}
