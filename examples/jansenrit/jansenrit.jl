@@ -57,16 +57,24 @@ function Bridge.b(t, x, ℙ::JansenRitDiffusion)
 end
 
 Bridge.σ(t, x, ℙ::JansenRitDiffusion) = SA[0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0]
-    
+
 wienertype(::JansenRitDiffusion) = Wiener()
 
 Bridge.constdiff(::JansenRitDiffusion) = true
+Bridge.constdiff(::JansenRitDiffusionAux) = true
 dim(::JansenRitDiffusion) = 6
+dim(::JansenRitDiffusionAux) = 6 
 
+Bridge.σ(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0]
 
+Bridge.a(t, ℙ::JansenRitDiffusionAux) =   @SMatrix [  0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0;
+                                                    0.0 0.0 0.0 0.0 ℙ.σy^2 0.0;
+                                                    0.0 0.0 0.0 0.0 0.0 0.0]
 
-
-# I would think this works nice, but this matrix is very ill-conditioned
+# This matrix is very ill-conditioned
 function Bridge.B(t, ℙ::JansenRitDiffusionAux)      
     @SMatrix [  0.0 0.0 0.0 1.0 0.0 0.0;
                 0.0 0.0 0.0 0.0 1.0 0.0;
@@ -76,6 +84,9 @@ function Bridge.B(t, ℙ::JansenRitDiffusionAux)
                 0.0 0.0 -ℙ.b^2 0.0 0.0 -2.0*ℙ.b]
 end
 
+Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0,  ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), μy(t,ℙ), 0.0 ]
+
+Bridge.b(t, x, ℙ::JansenRitDiffusionAux) = Bridge.B(t,ℙ) * x + Bridge.β(t,ℙ)
 
 
 
@@ -85,27 +96,6 @@ end
 #                                     μy(t,ℙ) + ℙ.guidingterm_with_x1 * ℙ.A*ℙ.a*C2(ℙ)* sigm( C1(ℙ)*ℙ.x1(t) , ℙ),
 #                                     ℙ.guidingterm_with_x1 * ℙ.B*ℙ.b*C4(ℙ)* sigm( C3(ℙ)*ℙ.x1(t), ℙ)]
 
-
-Bridge.β(t, ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0,  ℙ.A * ℙ.a * sigm(ℙ.vT, ℙ), μy(t,ℙ), 0.0 ]
-
-
-Bridge.σ(t,  ℙ::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 0.0, ℙ.σy, 0.0]
-
-Bridge.σ(t, x,  ℙ::JansenRitDiffusionAux) = Bridge.σ(t,  ℙ)
-
-Bridge.constdiff(::JansenRitDiffusionAux) = true
-dim(::JansenRitDiffusionAux) = 6 
-
-
-# standardfunctions (no adjustment needed)
-Bridge.b(t, x, ℙ::JansenRitDiffusionAux) = Bridge.B(t,ℙ) * x + Bridge.β(t,ℙ)
-Bridge.a(t, ℙ::JansenRitDiffusionAux) =   @SMatrix [  0.0 0.0 0.0 0.0 0.0 0.0;
-                                                    0.0 0.0 0.0 0.0 0.0 0.0;
-                                                    0.0 0.0 0.0 0.0 0.0 0.0;
-                                                    0.0 0.0 0.0 0.0 0.0 0.0;
-                                                    0.0 0.0 0.0 0.0 ℙ.σy^2 0.0;
-                                                    0.0 0.0 0.0 0.0 0.0 0.0]
-Bridge.a(t, x, ℙ::JansenRitDiffusionAux) = Bridge.a(t,ℙ) 
 
 
 

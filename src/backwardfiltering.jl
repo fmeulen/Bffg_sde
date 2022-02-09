@@ -109,19 +109,6 @@ fusion_HFC(h1, h2) = Htransform(h1.H + h2.H, h1.F + h2.F, h1.C + h2.C)
 
 ############# here rewrite with handwritten vern function
 
-# function backwardfiltering(S,obs, timegrids, ℙ̃s)
-#     n = length(obs)-1
-#     hT = obs[end].h
-#     M = [Message(S, ℙ̃s[n], timegrids[n], hT) ]
-#     Ms = [M]
-#     hT = fusion_HFC(Htransform(M), obs[n].h)
-#     for i in (n-1):-1:1
-#         M = Message(S, ℙ̃s[i], timegrids[i], hT) 
-#         pushfirst!(Ms, M)   
-#         hT = fusion_HFC(Htransform(M), obs[i].h)
-#     end
-#     hT, Ms
-# end
 
 function backwardfiltering(S,obs, timegrids, ℙ̃s)
     nseg = length(obs)-1
@@ -131,10 +118,25 @@ function backwardfiltering(S,obs, timegrids, ℙ̃s)
     for i in (nseg-1):-1:1
         M = Message(S, ℙ̃s[i], timegrids[i], hT) 
         pushfirst!(Ms, M)   
-        hT = fusion_HFC(Htransform(M), obs[i].h)
+        (i>1) && ( hT = fusion_HFC(Htransform(M), obs[i].h) )
     end
     hT, Ms
 end
+
+
+# function backwardfiltering(S,obs, timegrids, ℙ̃s)
+#     nseg = length(timegrids)
+#     M = Message(S, ℙ̃s[end], timegrids[end], obs[end].h) 
+#     Ms = [M]
+#     for i in nseg:-1:2
+#         hT = fusion_HFC(Htransform(M), obs[i].h)
+#         M = Message(S, ℙ̃s[i-1], timegrids[i-1], hT) 
+#         pushfirst!(Ms, M)   
+#     end
+# #    hT = fusion_HFC(Htransform(M), obs[1].h) # only if x0 is not fully observed
+#     hT, Ms
+# end
+
 
 
 

@@ -1,4 +1,5 @@
-logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x - h0.C    
+#logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x - h0.C    
+logh̃(x, h0) =  dot(x, -0.5 * h0.H * x + h0.F) - h0.C    
 
 function forwardguide(x0, ℙ, Z, M::Message)
     ℙ̃ = M.ℙ̃
@@ -18,11 +19,11 @@ function forwardguide(x0, ℙ, Z, M::Message)
             db = b  - Bridge.b(tt[i], x, ℙ̃)
             ll += dot(db, r) * dt
             if !constdiff(ℙ) || !constdiff(ℙ̃)
-                σ̃ = Bridge.σ(tt[i], x, ℙ̃)
+                σ̃ = Bridge.σ(tt[i], ℙ̃)
                 ll += 0.5*Bridge.inner( σ' * r) * dt    # |σ(t,x)' * tilder(t,x)|^2
-                ll -= 0.5*Bridge.inner(σ̃' * r) * dt   # |tildeσ(t,x)' * tilder(t,x)|^2
+                ll -= 0.5*Bridge.inner(σ̃' * r) * dt   # |tildeσ(t)' * tilder(t,x)|^2
                 a = Bridge.a(tt[i], x, ℙ)
-                ã = Bridge.a(tt[i], x, ℙ̃)
+                ã = Bridge.a(tt[i], ℙ̃)
                 ll += 0.5*dot(a-ã, M.H[i]) * dt
             end
         end
@@ -47,13 +48,31 @@ function forwardguide(x0, ℙ, Z::Innovations, B::BackwardFilter)
     XX, ll
 end
 
+"""
+    ParMove{Tn, Tkernel, Tp, Tr}
 
+    provide 
+    names: vector of Symbols, which are names of pars
+    prior: (product)-distribution 
+    recomputeguidingterm: Boolean whether necessary to recompute guiding term with this move
+"""
+struct ParMove{Tn, Tkernel, Tp, Tr}
+  names::Vector{Tn}
+  K::Tkernel
+  prior::Tp
+  recomputeguidingterm::Tr
+end
 
-function setpar(θ, ℙ, pars) 
-    tup = (; zip(pars.names, θ)...) # try copy here
+function setpar(θ, ℙ, move) 
+    tup = (; zip(move.names, θ)...) # try copy here
     setproperties(ℙ, tup)
-  end  
-  
+end  
+
+propose(move) = (θ) -> move.K(θ)
+logpriordiff(move) = (θ, θᵒ) -> sum(logpdf(move.prior, θᵒ) - logpdf(move.prior, θ)) # later double check
+setpar(move) =(θ, ℙ) -> setpar(θ, ℙ, move) 
+
+
 # this one is tricky:
 #forwardguide(B, ℙ, pars) = (x0, θ, Z) -> forwardguide(x0, setpar(θ, ℙ, pars), Z, B);
 # safer:
@@ -121,20 +140,19 @@ recomp(pars) = maximum(pars.recomputeguidingterm)
 
 
 # par updating, θ and XX are overwritten when accepted
-function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=true)
+function parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)
     accpar_ = false
-    θᵒ = K(θ)   
-    recompguidingterm = recomp(pars)
-    ℙᵒ = setpar(θᵒ, ℙ, pars)    
-    if recompguidingterm        
+    θᵒ = propose(move)(θ)   
+    ℙᵒ = setpar(move)(θᵒ, ℙ)    
+    if move.recomputeguidingterm        
         Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids);
     else 
         Bᵒ = B
     end
-    #XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ, pars)(x0, θᵒ, Z);
     XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ)(x0, Z)
     !verbose && printinfo(ll, llᵒ, "par") 
-    if log(rand()) < llᵒ-ll + logpdf(Prior, θᵒ) - logpdf(Prior, θ)
+
+    if log(rand()) < llᵒ-ll + logpriordiff(move)(θ, θᵒ)
       @. XX = XXᵒ
       ll = llᵒ
       @. θ = θᵒ
@@ -146,11 +164,11 @@ function parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals, S, 
     ll, B, ℙ, accpar_
 end
 
-parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=verbose)
+parupdate!(B, ℙ, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=verbose)
 
 
 # innov updating, XX and Z may get overwritten
-function pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=true)
+function pcnupdate!(B, ℙ, x0, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=true)
     accinnov_ = false 
     pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
     #XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
@@ -167,7 +185,7 @@ function pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose
     ll, accinnov_
 end
 
-pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, θ, Z, ll) ->    pcnupdate!(B, ℙ, pars, x0, θ, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
+pcnupdate!(B, ℙ, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, Z, ll) ->    pcnupdate!(B, ℙ, x0, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
 
 # this is what we want 
 function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w, Prior; verbose=true) # w::State proposal from exploring chain
@@ -177,10 +195,12 @@ function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Z
     θᵒ = copy(w.θ)
     ℙᵒ = setpar(θᵒ, ℙ, parse) 
     XXᵒ, llᵒ = forwardguide(B, ℙᵒ)(x0, Zᵒ)
+    #XXᵒ, llᵒ = forwardguide(B, ℙᵒ)(x0, Z)
     
     # compute log proposalratio, numerator should be πᵗ(θ, Z)
     ℙeprop = setpar([θ[1]], ℙe, parse)
-    _, llproposal = forwardguide(Be, ℙeprop)(x0, Z)
+     _, llproposal = forwardguide(Be, ℙeprop)(x0, Z)
+    #_, llproposal = forwardguide(Be, ℙeprop)(x0, w.Z)
     
     # denominator should be πᵗ(θᵒ, Zᵒ)
     # ℙeᵒ = setpar(θᵒ, ℙe, parse)
@@ -188,14 +208,16 @@ function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Z
     # llproposalᵒ == w.ll  # should be true
     llproposalᵒ = w.ll
 
-    A = llᵒ - ll +   logpdf(Prior, [θᵒ[1], θ[2]]) - logpdf(Prior, θ)+llproposal - llproposalᵒ
+    dprior = logpdf(priorC, θᵒ)[1] - logpdf(priorC, θ[1])
+    
+    A = llᵒ - ll + dprior + llproposal - llproposalᵒ
     if log(rand()) < A
         println(θᵒ)
         @show llᵒ - ll 
         @show llproposal - llproposalᵒ 
         @show llproposal
         @show llproposalᵒ
-        @show logpdf(Prior, [θᵒ[1], θ[2]]) - logpdf(Prior, θ)
+        @show dprior
         println()
 
 
@@ -205,7 +227,7 @@ function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Z
         ℙ = ℙᵒ
         #@. θ = θᵒ
         θ[1] = θᵒ[1]
-        
+         !(ℙ.C ==θ[1]) && @error "inconsistency occured in moveσfixed"
         accswap_ = true
         !verbose && print("✓")  
 
@@ -258,3 +280,7 @@ exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w, Prior; verbose=t
 # XXᵒ, llᵒ = forwardguide(Bᵒ, ℙ, pars)(x0, θᵒ, Z);
 # θᵒ, llᵒ, llᵒ - ll
 
+
+function testje!(x)
+    x[1]=10
+end
