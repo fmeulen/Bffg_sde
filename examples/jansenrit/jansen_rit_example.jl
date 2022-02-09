@@ -37,49 +37,58 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
 include("plotting.jl")
 
 ################################  TESTING  ################################################
-#S = Vern7direct()  # solver for backward ODEs
+
 S = DE(Vern7())
 
-#include("generatedata.jl")
-iterations = 10_000  #5_00
+include("generatedata.jl")
+iterations = 80_00  #5_00
 skip_it = 200
 subsamples = 0:skip_it:iterations # for saving paths
 
-
-# a small program
-
+# define priors
 priorC = Exponential(150.0)
 priorσy = Normal(1500.0, 500.0)#Uniform(100.0, 3_000.0)
 
+# define parameter moves
+moveC = ParMove([:C], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorC, false)
 
+moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[150.0])), priorC, false)
+
+moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 25.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)
+
+
+# a small program
 
 # settings
 verbose = true # if true, surpress output written to console
 
 
-θinit = 60.0
-ESTσ = true 
+θinit = 400.0
+ESTσ = true
 
 if ESTσ
-  pars = ParInfo([:C, :σy], [false, true])
+#  pars = ParInfo([:C, :σy], [false, true])
   θ = [copy(θinit), 1500.0] 
-  K = parameterkernel((short=[2.0, 30.0], long=[10.0, 10.0]); s=0.0) # always use short-range proposal kernel  
-  Prior = product_distribution([priorC, priorσy])
+  movetarget = moveCσy
+#  K = parameterkernel((short=[2.0, 25.0], long=[10.0, 10.0]); s=0.0) # always use short-range proposal kernel  
+#  Prior = product_distribution([priorC, priorσy])
 else
-  pars = ParInfo([:C], [false])#
+#  pars = ParInfo([:C], [false])#
   θ = [copy(θinit)] # initial value for parameter
-  K = parameterkernel((short=[2.0], long=[10.0]))  
-  Prior = product_distribution([priorC])
+  movetarget = moveC
+#  K = parameterkernel((short=[2.0], long=[10.0]); s=0.0)  
+#  Prior = product_distribution([priorC])
   end
-ℙ = setpar(θ, ℙtrue, pars)
+ℙ = setpar(movetarget)(θ, ℙtrue)
 
 θe = [copy(θinit)]
-𝒯 = 3.0 # temperature
-ℙe = setproperties(ℙtrue, σy = 𝒯*ℙ.σy)
-Ke = parameterkernel((short=[10.0], long=[150.0]))  
-parse = ParInfo([:C], [false])
-Priore = product_distribution([priorC])
-ℙe = setpar(θe, ℙe, parse)
+move_exploring = moveCᵒ
+𝒯 = 5.0 # temperature
+ℙe = setproperties(ℙtrue, σy = 𝒯*ℙtrue.σy)
+#Ke = parameterkernel((short=[40.0], long=[150.0]))  
+#parse = ParInfo([:C], [false])
+#Priore = product_distribution([priorC])
+ℙe = setpar(move_exploring)(θe, ℙe)
 
 
 timegrids = set_timegrids(obs, 0.0005)
@@ -89,7 +98,7 @@ timegrids = set_timegrids(obs, 0.0005)
 
 # pcn pars 
 ρ = 0.95
-ρe = 0.9
+ρe = 0.95
 
 
 
@@ -132,18 +141,19 @@ for i in 1:iterations
   (i % 500 == 0) && println(i)
   
   # update exploring chain
-  lle, Be, ℙe, accpare_ = parupdate!(Be, ℙe, parse, XXe, Ke, Priore, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
-  lle, accinnove_ = pcnupdate!(Be, ℙe, parse, XXe, Zbuffer, Zeᵒ, ρse)(x0, θe, Ze, lle); # Z and XX may get overwritten
+  lle, Be, ℙe, accpare_ = parupdate!(Be, ℙe, XXe, move_exploring, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
+  lle, accinnove_ = pcnupdate!(Be, ℙe, XXe, Zbuffer, Zeᵒ, ρse)(x0, Ze, lle); # Z and XX may get overwritten
   push!(exploring, State(x0, copy(Ze), copy(θe), copy(lle)))   # collection of samples from exploring chain
+  getfield.(exploring,:θ)
 
   # update target chain
-  smallworld = rand() > 0#.33
+  smallworld = rand() > 0 #0.33
   if smallworld
-    ll, B, ℙ, accpar_ = parupdate!(B, ℙ, pars, XX, K, Prior, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
+    ll, B, ℙ, accpar_ = parupdate!(B, ℙ, XX, movetarget, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
     accmove_ =0
   else
     w = sample(exploring)     # randomly choose from samples of exploring chain
-    ll, ℙ,  accmove_ = exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w, Prior; verbose=verbose)(x0, θ, Z, ll) 
+    ll, ℙ,  accmove_ = exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w, Priore; verbose=verbose)(x0, θ, Z, ll) 
     accpar_ = 0
     #println(ℙ.C ==θ[1])
   end  
@@ -167,6 +177,7 @@ end
 # final imputed path
 plot_all(ℙ, timegrids, XXsave[end])
 plot_all(ℙ, Xf, obstimes, obsvals, timegrids, XXsave[end])
+savefig(joinpath(outdir,"guidedpath_finaliteration.png"))
 
 #
 println("Target chain: accept% innov ", 100*accinnov/iterations,"%")
@@ -183,17 +194,19 @@ h1 = histogram(getindex.(θsave,1),bins=35, label="target chain")
 h2 = histogram(getindex.(θesave,1),bins=35, label="exploring chain")
 plot(h1, h2, layout = @layout [a b])  
 
-p1 = plot(llsave, label="target")    
+p1 = plot(llsave, label="target",legend=:bottom)    
 plot!(p1,llesave, label="exploring")    
+savefig(joinpath(outdir,"logliks.png"))
 
 # traceplots
 pa = plot(getindex.(θsave,1), label="target", legend=:top)
+hline!(pa, [ℙtrue.C], label="",color=:black)
 plot!(pa, getindex.(θesave,1), label="exploring")
 
 #plot(getindex.(θsave,2), label="target")
 pb = plot(getindex.(θsave,2), label="target", legend=:top)
 plot(pa, pb, layout = @layout [a; b])  
-
+#savefig(joinpath(outdir,"traceplots.png"))
 
 
 
