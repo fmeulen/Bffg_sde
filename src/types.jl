@@ -146,14 +146,19 @@ struct BackwardFilter{T, Th0}
     
    BackwardFilter(Ms, h0::Th0)  where {Th0} = new{eltype(Ms), Th0}(Ms, h0)
    
-   function BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids) 
-        ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], false, false, ℙ) for i in 2:length(obs)] # careful here: observation is passed as Float64
+   function BackwardFilter(S, ℙ̃s, obs, timegrids)
+       h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
+       new{eltype(Ms), typeof(h0)}(Ms, h0)
+   end
+
+   function BackwardFilter(S, ℙ::JansenRitDiffusion, AuxType, obs, obsvals, timegrids) 
+         ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], false, false, ℙ) for i in 2:length(obs)] # careful here: observation is passed as Float64
         h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
         new{eltype(Ms), typeof(h0)}(Ms, h0)
    end
 
    # the one below is with guiding term based on deterministic solution x1-x4 system
-   function BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0) 
+   function BackwardFilter(S, ℙ::JansenRitDiffusion, AuxType, obs, obsvals, timegrids, x0) 
         x1_init=0.0
         i=2
         lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )

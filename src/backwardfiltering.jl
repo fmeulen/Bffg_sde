@@ -53,8 +53,8 @@ function ode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
 end
 
 function dHFC(s, y, ℙ̃)
-    #access = Val{}(dim(ℙ̃))  #
-    access = Val{6}()
+    access = Val{}(dim(ℙ̃))  #
+    #access = Val{6}()
     H, F, _ = static_accessor_HFc(y, access)
     _B, _β, _σ, _a = Bridge.B(s, ℙ̃), Bridge.β(s, ℙ̃), Bridge.σ(s, ℙ̃), Bridge.a(s, ℙ̃)
 
@@ -117,13 +117,14 @@ function backwardfiltering(S,obs, timegrids, ℙ̃s)
         M = Message(S, ℙ̃s[i-1], timegrids[i-1], hT) 
         pushfirst!(Ms, M)   
     end
+    hT = Htransform(M)
 #    hT = fusion_HFC(Htransform(M), obs[1].h) # only if x0 is not fully observed
     hT, Ms
 end
 
 
 
-function backwardfiltering!(S, Ms, obs) 
+function backwardfiltering!(S, Ms, obs) ##FIXME
     n = length(Ms)
     hT = obs[end].h
     for i in n:-1:1
