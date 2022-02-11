@@ -1,4 +1,3 @@
-#logh̃(x, h0) = -0.5 * x' * h0.H * x + h0.F' * x - h0.C    
 logh̃(x, h0) =  dot(x, -0.5 * h0.H * x + h0.F) - h0.C    
 
 function forwardguide(x0, ℙ, Z, M::Message)
@@ -34,7 +33,7 @@ function forwardguide(x0, ℙ, Z, M::Message)
 end
 
 
-function forwardguide(x0, ℙ, Z::Innovations, B::BackwardFilter)
+function forwardguide(x0, ℙ, Z::Innovations, B::BackwardFilter; include_h0=true)
     X, ll = forwardguide(x0, ℙ, Z.z[1], B.Ms[1])
     xlast = X[end]
     XX = [X]
@@ -44,24 +43,13 @@ function forwardguide(x0, ℙ, Z::Innovations, B::BackwardFilter)
         push!(XX, copy(X))
         xlast = X[end]
     end
-    ll += logh̃(x0, B.h0) 
+    ll += logh̃(x0, B.h0) * include_h0
     XX, ll
 end
 
-"""
-    ParMove{Tn, Tkernel, Tp, Tr}
+forwardguide(B, ℙ) = (x0, Z) -> forwardguide(x0, ℙ, Z, B);  
 
-    provide 
-    names: vector of Symbols, which are names of pars
-    prior: (product)-distribution 
-    recomputeguidingterm: Boolean whether necessary to recompute guiding term with this move
-"""
-struct ParMove{Tn, Tkernel, Tp, Tr}
-  names::Vector{Tn}
-  K::Tkernel
-  prior::Tp
-  recomputeguidingterm::Tr
-end
+
 
 function setpar(θ, ℙ, move) 
     tup = (; zip(move.names, θ)...) # try copy here
@@ -70,13 +58,9 @@ end
 
 propose(move) = (θ) -> move.K(θ)
 logpriordiff(move) = (θ, θᵒ) -> sum(logpdf(move.prior, θᵒ) - logpdf(move.prior, θ)) # later double check
-setpar(move) =(θ, ℙ) -> setpar(θ, ℙ, move) 
+setpar(move) = (θ, ℙ) -> setpar(θ, ℙ, move) 
 
 
-# this one is tricky:
-#forwardguide(B, ℙ, pars) = (x0, θ, Z) -> forwardguide(x0, setpar(θ, ℙ, pars), Z, B);
-# safer:
-forwardguide(B, ℙ) = (x0, Z) -> forwardguide(x0, ℙ, Z, B);  
 
 
 function parameterkernel(θ, tuningpars, s) 
@@ -87,18 +71,12 @@ function parameterkernel(θ, tuningpars, s)
   
 parameterkernel(tuningpars; s=0.33) = (θ) -> parameterkernel(θ, tuningpars, s) 
   
-
-
-
 function adjust_PNCparamters!(ρs, ρ; thresh=0.25)
     for i in eachindex(ρs)
         U = rand()
         ρs[i] = ρ * (U<thresh) + (U>=thresh)
     end
 end
-
-
-
 
 function pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
     noisetype = wienertype(ℙ)
@@ -125,7 +103,6 @@ function copy!(Z1::Innovations{T}, Z2::Innovations{T}) where {T<:SamplePath}
     end
 end
 
-
 import Base.copy
 copy(Z::Innovations) = Innovations(deepcopy(Z.z))
 
@@ -136,7 +113,7 @@ end
 checkstate(B, ℙ) = (w) -> checkstate(w,B, ℙ)
 
 
-recomp(pars) = maximum(pars.recomputeguidingterm)
+#recomp(pars) = maximum(pars.recomputeguidingterm)
 
 
 # par updating, θ and XX are overwritten when accepted
@@ -171,7 +148,6 @@ parupdate!(B, ℙ, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true) 
 function pcnupdate!(B, ℙ, x0, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=true)
     accinnov_ = false 
     pcn!(Zᵒ, Z, Zbuffer, ρs, ℙ)
-    #XXᵒ, llᵒ = forwardguide(B, ℙ, pars)(x0, θ, Zᵒ);
     XXᵒ, llᵒ = forwardguide(B, ℙ)(x0, Zᵒ);
     
     !verbose && printinfo(ll, llᵒ, "pCN") 
@@ -188,28 +164,25 @@ end
 pcnupdate!(B, ℙ, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, Z, ll) ->    pcnupdate!(B, ℙ, x0, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
 
 # this is what we want 
-function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w, Prior; verbose=true) # w::State proposal from exploring chain
+function exploremoveσfixed!(B, ℙ, Be, ℙe, move , x0, θ, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
     accswap_ = false
     # propose from exploring chain in target chain
     copy!(Zᵒ, w.Z) 
     θᵒ = copy(w.θ)
-    ℙᵒ = setpar(θᵒ, ℙ, parse) 
+    ℙᵒ = setpar(move)(θᵒ, ℙ) 
     XXᵒ, llᵒ = forwardguide(B, ℙᵒ)(x0, Zᵒ)
-    #XXᵒ, llᵒ = forwardguide(B, ℙᵒ)(x0, Z)
-    
+        
     # compute log proposalratio, numerator should be πᵗ(θ, Z)
-    ℙeprop = setpar([θ[1]], ℙe, parse)
+    ℙeprop = setpar(move)([θ[1]], ℙe)
      _, llproposal = forwardguide(Be, ℙeprop)(x0, Z)
-    #_, llproposal = forwardguide(Be, ℙeprop)(x0, w.Z)
-    
     # denominator should be πᵗ(θᵒ, Zᵒ)
-    # ℙeᵒ = setpar(θᵒ, ℙe, parse)
+    # ℙeᵒ = setpar(move)(θᵒ, ℙe)
     # _, llproposalᵒ = forwardguide(Be, ℙeᵒ)(x0, Zᵒ);
     # llproposalᵒ == w.ll  # should be true
     llproposalᵒ = w.ll
 
-    dprior = logpdf(priorC, θᵒ)[1] - logpdf(priorC, θ[1])
     
+    dprior = 0.0  #logpriordiff(move)([θ[1]], θᵒ) 
     A = llᵒ - ll + dprior + llproposal - llproposalᵒ
     if log(rand()) < A
         println(θᵒ)
@@ -217,7 +190,7 @@ function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Z
         @show llproposal - llproposalᵒ 
         @show llproposal
         @show llproposalᵒ
-        @show dprior
+   #     @show dprior
         println()
 
 
@@ -235,52 +208,7 @@ function exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Z
     ll, ℙ, accswap_
 end
 
-exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w, Prior; verbose=true) = (x0, θ, Z, ll) ->  exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w, Prior; verbose=verbose) # w::State proposal from exploring chain
-
-###### now also move σ
-# function exploremove!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
-#     accswap_ = false
-#     copy!(Zᵒ, w.Z) # proppose from exploring chain in target chain
-#     θᵒ = [copy(w.θ)[1], ℙe.σy]
-#     ℙᵒ = setpar(θᵒ, ℙ, pars)   # hence in proposal σ=σ_exploring
-#     XXᵒ, llᵒ = forwardguide(Be, ℙᵒ, pars)(x0, θᵒ, Zᵒ);  # this is subtle only update C, that why parse and not pars
-#     # compute log proposalratio
-#     _, llproposal = forwardguide(Be, ℙ, pars)(x0, θ, Z);
-#     #_, llproposalᵒ = forwardguide(Be, ℙe, parse)(x0, θᵒ, Zᵒ);
-#     llproposalᵒ = w.ll
-#     A = llᵒ -ll + llproposal - llproposalᵒ 
-#     if log(rand()) < A
-#         @. XX = XXᵒ
-#         copy!(Z, Zᵒ)
-#         ll = llᵒ
-#         ℙ = ℙᵒ
-#         @. θ = θᵒ
-#         B = Be
-
-#         accswap_ = true
-#         !verbose && print("✓")  
-#     end
-#     ll, ℙ, B, accswap_
-# end
-
-
-# exploremove!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremove!(B, ℙ, pars, Be, ℙe, parse, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
+exploremoveσfixed!(B, ℙ, Be, ℙe, move, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremoveσfixed!(B, ℙ,  Be, ℙe,move, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
 
 
 
-# θ = [40.0, 1500.0]
-# ℙᵒ = setpar(θ, ℙ, pars)    
-# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids);
-# XX, ll = forwardguide(Bᵒ, ℙ, pars)(x0, θ, Z);
-# θ, ll
-
-# θᵒ = K(θ)   
-# ℙᵒ = setpar(θᵒ, ℙ, pars)    
-# Bᵒ = BackwardFilter(S, ℙᵒ, AuxType, obs, obsvals, timegrids);
-# XXᵒ, llᵒ = forwardguide(Bᵒ, ℙ, pars)(x0, θᵒ, Z);
-# θᵒ, llᵒ, llᵒ - ll
-
-
-function testje!(x)
-    x[1]=10
-end

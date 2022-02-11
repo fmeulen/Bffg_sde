@@ -9,11 +9,26 @@ struct DE{T} <: Solver
     solvertype::T
 end
 
-struct ParInfo
-    names::Vector{Symbol}
-    recomputeguidingterm::Vector{Bool}
-end
+# struct ParInfo
+#     names::Vector{Symbol}
+#     recomputeguidingterm::Vector{Bool}
+# end
   
+"""
+    ParMove{Tn, Tkernel, Tp, Tr}
+
+    provide 
+    names: vector of Symbols, which are names of pars
+    prior: (product)-distribution 
+    recomputeguidingterm: Boolean whether necessary to recompute guiding term with this move
+"""
+struct ParMove{Tn, Tkernel, Tp, Tr}
+  names::Vector{Tn}
+  K::Tkernel
+  prior::Tp
+  recomputeguidingterm::Tr
+end
+
 
 struct Innovations{T}
     z::Vector{T}
@@ -27,27 +42,12 @@ end
 
 
 """
-    Observation{Tt, Tv, TL, TΣ, Th}
+    Observation
 
     (t,v,L,Σ): at time t we have observations v ~ N(Lx_t, Σ)
+    t: time of observation
     h: htransform of the observation 
 """
-# struct Observation{Tt, Tv, TL, TΣ, Th}
-#     t::Tt
-#     v::Tv
-#     L::TL
-#     Σ::TΣ
-#     h::Th
-#     Observation(t::Tt, v::Tv, L::TL, Σ::TΣ, h::Th) where {Tt,Tv,TL,TΣ,Th} =
-#         new{Tt, Tv, TL, TΣ, Th}(t,v,L,Σ,h)
-
-
-#     function Observation(t::Tt, v::Tv, L::TL, Σ::TΣ) where {Tt, Tv, TL, TΣ}
-#         h = Htransform(Obs(), v, L, Σ)
-#         new{Tt, Tv, TL, TΣ, typeof(h)}(t,v,L,Σ,h)
-#     end    
-# end
-
 struct Observation{Tt, Th}
     t::Tt
     h::Th
@@ -111,7 +111,7 @@ struct Message{Tℙ̃,TH,TF,TC}
         N = length(tt)
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
-        _, _, C = pbridgeode_HFC!(D, ℙ̃, tt, (Ht, Ft), hT)
+        _, _, C = ode_HFC!(D, ℙ̃, tt, (Ht, Ft), hT)
         new{typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ̃, tt, Ht, Ft, C)
     end
 
@@ -120,7 +120,7 @@ struct Message{Tℙ̃,TH,TF,TC}
         N = length(tt)
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
-        _, _, C = pbridgeode_HFC!(Vern7direct(), ℙ̃, tt, (Ht, Ft), hT)
+        _, _, C = ode_HFC!(Vern7direct(), ℙ̃, tt, (Ht, Ft), hT)
         new{typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ̃, tt, Ht, Ft, C)
     end
 
@@ -129,7 +129,7 @@ struct Message{Tℙ̃,TH,TF,TC}
         N = length(tt)
         Ht = zeros(TH, N)
         Ft = zeros(TF, N)
-        _, _, C = pbridgeode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), hT)
+        _, _, C = ode_HFC!(RK4(), ℙ̃, tt, (Ht, Ft), hT)
         new{typeof(ℙ̃), eltype(Ht), eltype(Ft), typeof(C)}(ℙ̃, tt, Ht, Ft, C)
     end
 end
@@ -173,38 +173,9 @@ struct BackwardFilter{T, Th0}
 end  
 
 
-
-# function init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
-#     i=2
-#     lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
-#     ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ)] # careful here: observation is passed as Float64
-#     n = length(obs)
-#     for i in 3:n # skip x0
-#       lininterp = LinearInterpolation([obs[i-1].t, obs[i].t], [x1_init, x1_init] )
-#       push!(ℙ̃s, AuxType(obs[i].t, obsvals[i][1], lininterp, false, ℙ))  # careful here: observation is passed as Float64
-#     end
-#     h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
-#     if guidingterm_with_x1
-#         add_deterministicsolution_x1!(Ms, x0)
-#         h0 = backwardfiltering!(S, Ms, obs)
-#     end
-#     h0, Ms
-# end
-
-
-# function init_auxiliary_processes(S, ℙ, AuxType, obs, obsvals, timegrids) #, timegrids, x0, guidingterm_with_x1::Bool; x1_init=0.0)
-#     ℙ̃s = [AuxType(obs[i].t, obsvals[i][1], false, false, ℙ) for i in 2:length(obs)] # careful here: observation is passed as Float64
-#     h0, Ms = backwardfiltering(S, obs, timegrids, ℙ̃s)
-#     h0, Ms
-# end
-
-
-
-
-
 struct State{Tx0, TI, Tθ, Tll}
     x0::Tx0
-    Z::TI#Innovations{TI}
+    Z::TI
     θ::Vector{Tθ}
     ll::Tll
 end

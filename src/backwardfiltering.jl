@@ -16,7 +16,7 @@ end
 
 dHFC_DE(y, ℙ̃, s) = dHFC(s, y, ℙ̃)
 
-function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
+function ode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
     access = Val{}(dim(ℙ̃))
     TP = typeof(hT.H); Tν= typeof(hT.F); Tc = typeof(hT.C)
     saved_values = SavedValues(Float64, Tuple{TP,Tν,Tc})
@@ -44,7 +44,6 @@ function pbridgeode_HFC!(D::DE, ℙ̃, tt, (Ht, Ft), hT)
  
     DifferentialEquations.solve!(integrator)   # s
     ss = saved_values.saveval  # these are in reversed order, so C is obtained from the last index and for Ht and Ft we need to reverse
-    #reverse!(ss)      #Ht .= getindex.(ss,1)      #Ft .= getindex.(ss,2)
     for i in eachindex(ss)
         Ht[end-i+1] = ss[i][1]
         Ft[end-i+1] = ss[i][2]
@@ -61,14 +60,14 @@ function dHFC(s, y, ℙ̃)
 
     dH = (- (_B' * H)  - (H * _B) + Bridge.outer( H * _σ))
     dF  = (- (_B' * F) + H * (_a * F + _β) )
-    dC =  (dot(_β, F) + 0.5*dot(F,_a, F) - 0.5*tr( (H* (_a))))
+    dC =  (dot(_β, F) + 0.5*dot(F, _a, F) - 0.5*tr( (H* (_a))))
     #U = (F' * _σ) ;  dC =  (dot(_β, F) + 0.5*dot(U,U) - 0.5*tr( (H* (_a))))
     vectorise(dH, dF, dC)
 end
 
 
 
-function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
+function ode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
     access = Val{}(dim(ℙ̃))  ##access = Val{6}()   
     y = vectorise(hT.H, hT.F, hT.C)
     Ht[end], Ft[end], C =  static_accessor_HFc(y, access)
@@ -81,7 +80,7 @@ function pbridgeode_HFC!(::RK4, ℙ̃, t, (Ht, Ft), hT)
     Ht, Ft, C
 end
 
-function pbridgeode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
+function ode_HFC!(S::Vern7direct, ℙ̃, t, (Ht, Ft), hT)
     access = Val{}(dim(ℙ̃))  ##access = Val{6}()   
     y = vectorise(hT.H, hT.F, hT.C)
     Ht[end], Ft[end], C =  static_accessor_HFc(y, access)
@@ -108,36 +107,19 @@ fusion_HFC(h1, h2) = Htransform(h1.H + h2.H, h1.F + h2.F, h1.C + h2.C)
 
 
 ############# here rewrite with handwritten vern function
-
-
 function backwardfiltering(S,obs, timegrids, ℙ̃s)
-    nseg = length(obs)-1
-    M = Message(S, ℙ̃s[nseg], timegrids[nseg], obs[end].h) 
+    hT = obs[end].h 
+    M = Message(S, ℙ̃s[end], timegrids[end], hT) 
     Ms = [M]
-    hT = fusion_HFC(Htransform(M), obs[nseg].h)
-    for i in (nseg-1):-1:1
-        M = Message(S, ℙ̃s[i], timegrids[i], hT) 
+    nseg = length(timegrids)
+    for i in nseg:-1:2
+        hT = fusion_HFC(Htransform(M), obs[i].h)
+        M = Message(S, ℙ̃s[i-1], timegrids[i-1], hT) 
         pushfirst!(Ms, M)   
-        (i>1) && ( hT = fusion_HFC(Htransform(M), obs[i].h) )
     end
+#    hT = fusion_HFC(Htransform(M), obs[1].h) # only if x0 is not fully observed
     hT, Ms
 end
-
-
-# function backwardfiltering(S,obs, timegrids, ℙ̃s)
-#     nseg = length(timegrids)
-#     M = Message(S, ℙ̃s[end], timegrids[end], obs[end].h) 
-#     Ms = [M]
-#     for i in nseg:-1:2
-#         hT = fusion_HFC(Htransform(M), obs[i].h)
-#         M = Message(S, ℙ̃s[i-1], timegrids[i-1], hT) 
-#         pushfirst!(Ms, M)   
-#     end
-# #    hT = fusion_HFC(Htransform(M), obs[1].h) # only if x0 is not fully observed
-#     hT, Ms
-# end
-
-
 
 
 
@@ -145,7 +127,7 @@ function backwardfiltering!(S, Ms, obs)
     n = length(Ms)
     hT = obs[end].h
     for i in n:-1:1
-        pbridgeode_HFC!(S, Ms[i].ℙ̃, Ms[i].tt, (Ms[i].H, Ms[i].F), hT) #FIXME  S=DE(Vern7())
+        ode_HFC!(S, Ms[i].ℙ̃, Ms[i].tt, (Ms[i].H, Ms[i].F), hT) #FIXME  S=DE(Vern7())
         hT = fusion_HFC(Htransform(Ms[i]), obs[i].h)
     end
     hT
@@ -198,8 +180,4 @@ function add_deterministicsolution_x1!(Ms::Vector{Message}, x0)
         Ms[i] = u 
     end
 end
-# tt = [Ms[i].tt for i in eachindex(Ps)]
-# yy = [Ms[i].ℙ̃.x1(tt[i]) for i in eachindex(Ps)]
-# p = plot_(Ps,1)
-# plot!(p,vcat(tt...), vcat(yy...),color="grey")
 

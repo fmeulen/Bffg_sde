@@ -28,7 +28,7 @@ sk = 0 # skipped in evaluating loglikelihood
 include("jansenrit.jl")
 include("jansenrit3.jl")
 
-include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/vern7.jl")
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/tableaus_ode_solvers.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/types.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/forwardguiding.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/backwardfiltering.jl")
@@ -41,7 +41,11 @@ include("plotting.jl")
 S = DE(Vern7())
 
 include("generatedata.jl")
-iterations = 80_00  #5_00
+
+timegrids = set_timegrids(obs, 0.0005)
+
+
+iterations = 15_000  #5_00
 skip_it = 200
 subsamples = 0:skip_it:iterations # for saving paths
 
@@ -52,9 +56,11 @@ priorσy = Normal(1500.0, 500.0)#Uniform(100.0, 3_000.0)
 # define parameter moves
 moveC = ParMove([:C], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorC, false)
 
-moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[150.0])), priorC, false)
+moveσy = ParMove([:σy], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorσy, true)
 
-moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 25.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)
+moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[100.0])), priorC, false)
+
+moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 10.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)
 
 
 # a small program
@@ -63,35 +69,27 @@ moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 25.0], long=[10.0, 1
 verbose = true # if true, surpress output written to console
 
 
-θinit = 400.0
+θinit = 140.0
 ESTσ = true
 
 if ESTσ
 #  pars = ParInfo([:C, :σy], [false, true])
-  θ = [copy(θinit), 1500.0] 
+  θ = [copy(θinit), 3000.0] 
   movetarget = moveCσy
-#  K = parameterkernel((short=[2.0, 25.0], long=[10.0, 10.0]); s=0.0) # always use short-range proposal kernel  
-#  Prior = product_distribution([priorC, priorσy])
 else
-#  pars = ParInfo([:C], [false])#
   θ = [copy(θinit)] # initial value for parameter
   movetarget = moveC
-#  K = parameterkernel((short=[2.0], long=[10.0]); s=0.0)  
-#  Prior = product_distribution([priorC])
   end
-ℙ = setpar(movetarget)(θ, ℙtrue)
+ℙ = setpar(movetarget)(θ, ℙ0)
 
 θe = [copy(θinit)]
 move_exploring = moveCᵒ
-𝒯 = 5.0 # temperature
-ℙe = setproperties(ℙtrue, σy = 𝒯*ℙtrue.σy)
-#Ke = parameterkernel((short=[40.0], long=[150.0]))  
-#parse = ParInfo([:C], [false])
-#Priore = product_distribution([priorC])
+𝒯 = 5_000.0 # temperature
+ℙe = setproperties(ℙ0, σy = 𝒯)
 ℙe = setpar(move_exploring)(θe, ℙe)
 
 
-timegrids = set_timegrids(obs, 0.0005)
+
 
 
 
@@ -113,7 +111,7 @@ XX, ll = forwardguide(B, ℙ)(x0, Z);
 
 # initialisation of exploring chain 
 Be = BackwardFilter(S, ℙe, AuxType, obs, obsvals, timegrids);
-Ze = Innovations(timegrids, ℙ);
+Ze = Innovations(timegrids, ℙe);# deepcopy(Z);
 Zeᵒ = deepcopy(Ze)
 ρse = fill(ρe, length(timegrids))
 XXe, lle = forwardguide(Be, ℙe)(x0, Ze);
@@ -144,20 +142,19 @@ for i in 1:iterations
   lle, Be, ℙe, accpare_ = parupdate!(Be, ℙe, XXe, move_exploring, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
   lle, accinnove_ = pcnupdate!(Be, ℙe, XXe, Zbuffer, Zeᵒ, ρse)(x0, Ze, lle); # Z and XX may get overwritten
   push!(exploring, State(x0, copy(Ze), copy(θe), copy(lle)))   # collection of samples from exploring chain
-  getfield.(exploring,:θ)
-
+  
   # update target chain
-  smallworld = rand() > 0 #0.33
+  smallworld = rand() > 0.33
   if smallworld
     ll, B, ℙ, accpar_ = parupdate!(B, ℙ, XX, movetarget, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
     accmove_ =0
   else
     w = sample(exploring)     # randomly choose from samples of exploring chain
-    ll, ℙ,  accmove_ = exploremoveσfixed!(B, ℙ, pars, Be, ℙe, parse, XX, Zᵒ, w, Priore; verbose=verbose)(x0, θ, Z, ll) 
+    ll, ℙ,  accmove_ = exploremoveσfixed!(B, ℙ, Be, ℙe, move_exploring, XX, Zᵒ, w; verbose=verbose)(x0, θ, Z, ll) 
     accpar_ = 0
     #println(ℙ.C ==θ[1])
   end  
-  ll, accinnov_ = pcnupdate!(B, ℙ, pars, XX, Zbuffer, Zᵒ, ρs)(x0, θ, Z, ll); # Z and XX may get overwritten
+  ll, accinnov_ = pcnupdate!(B, ℙ, XX, Zbuffer, Zᵒ, ρs)(x0, Z, ll); # Z and XX may get overwritten
 
   
   # update acceptance counters
@@ -200,11 +197,12 @@ savefig(joinpath(outdir,"logliks.png"))
 
 # traceplots
 pa = plot(getindex.(θsave,1), label="target", legend=:top)
-hline!(pa, [ℙtrue.C], label="",color=:black)
+hline!(pa, [ℙ0.C], label="",color=:black)
 plot!(pa, getindex.(θesave,1), label="exploring")
 
-#plot(getindex.(θsave,2), label="target")
+
 pb = plot(getindex.(θsave,2), label="target", legend=:top)
+hline!(pb, [ℙ0.σy], label="",color=:black)
 plot(pa, pb, layout = @layout [a; b])  
 #savefig(joinpath(outdir,"traceplots.png"))
 

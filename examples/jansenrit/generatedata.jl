@@ -1,42 +1,42 @@
-Random.seed!(5)
+#Random.seed!(5)
 #Random.seed!(15)
 
 model= [:jr, :jr3][1]
 
 if model == :jr
-  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
-  θtrue =[3.25, 100.0, 22.0, 50.0, 185.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 1000.0]  # this gives bimodality
-  #θtrue =[3.25, 100.0, 22.0, 50.0, 285.0, 0.8, 0.25, 5.0, 6.0, 0.56, 20.0, 200.0]  # also try this one
-  ℙ = JansenRitDiffusion(θtrue...)
-  show(properties(ℙ))
+ # θ0 =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+ # θ0 =[3.25, 100.0, 22.0, 50.0, 185.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # this gives bimodality
+  θ0 =[3.25, 100.0, 22.0, 50.0, 530.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 5.0]  # also try this one
+  ℙ0 = JansenRitDiffusion(θ0...)
+  @show properties(ℙ0)
   AuxType = JansenRitDiffusionAux
 end
 if model == :jr3
-  θtrue =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.01, 2000.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
-  ℙ = JansenRitDiffusion3(θtrue...)
+  θ0 =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.01, 2000.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  ℙ0 = JansenRitDiffusion3(θ0...)
   AuxType = JansenRitDiffusionAux3
 end
 
 #------  set observations
 L = @SMatrix [0.0 1.0 -1.0 0.0 0.0 0.0]
 m,  = size(L)
-Σdiagel = 1e-9
+Σdiagel = 1e-2 # oorspr 1e-9
 Σ = SMatrix{m,m}(Σdiagel*I)
 
 #---- generate test data
-T = 1.0
+T = 3.8 #1.0
 x0 = @SVector zeros(6)
-W = sample((-1.0):0.0001:T, wienertype(ℙ))                        #  sample(tt, Wiener{ℝ{1}}())
-Xf_prelim = solve(Euler(), x0, W, ℙ)
+W = sample((-1.0):0.0001:T, wienertype(ℙ0))                        #  sample(tt, Wiener{ℝ{1}}())
+Xf_prelim = solve(Euler(), x0, W, ℙ0)
 # drop initial nonstationary behaviour
 Xf = SamplePath(Xf_prelim.tt[10001:end], Xf_prelim.yy[10001:end])
 x0 = Xf.yy[1]
-
+dt = Xf.tt[2]-Xf.tt[1]
 
 skipobs = 400# I took 400  all the time
 obstimes =  Xf.tt[1:skipobs:end]
 obsvals = map(x -> L*x, Xf.yy[1:skipobs:end])
-pF = plot_all(ℙ,  Xf, obstimes, obsvals)
+pF = plot_all(ℙ0,  Xf, obstimes, obsvals)
 savefig(joinpath(outdir, "forwardsimulated.png"))
 
 #------- process observations
@@ -44,27 +44,29 @@ obs = [Observation(obstimes[1],  x0,  SMatrix{6,6}(1.0I), SMatrix{6,6}(Σdiagel*
 for i in 2:length(obstimes)
   push!(obs, Observation(obstimes[i], obsvals[i], L, Σ));
 end
-ℙtrue = ℙ
 
-
-S = DE(Vern7())
+@show ℙ0
 
 
 # remainder is checking 
+S = DE(Vern7())
 
 timegrids = set_timegrids(obs, 0.0005)
-B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids) ;
-Z = Innovations(timegrids, ℙ);
+B = BackwardFilter(S, ℙ0, AuxType, obs, obsvals, timegrids) ;
+Z = Innovations(timegrids, ℙ0);
 
 # check
-XX, ll = forwardguide(B, ℙ)(x0, Z);
+XX, ll = forwardguide(B, ℙ0)(x0, Z);
 
-pG = plot_all(ℙ, timegrids,XX)
+pG = plot_all(ℙ0, timegrids, XX)
 l = @layout [a;b]
 plot(pF, pG, layout=l)
 savefig(joinpath(outdir,"forward_guidedinitial_separate.png"))
 
-plot_all(ℙ,Xf, obstimes, obsvals, timegrids, XX)
+plot_all(ℙ0,Xf,  obstimes, obsvals, timegrids, XX)
+
+
+
 savefig(joinpath(outdir,"forward_guidedinitial_overlaid.png"))
 
 

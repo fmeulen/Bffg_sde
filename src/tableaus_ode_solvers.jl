@@ -116,16 +116,6 @@ function vern7(f, t, y::T, dt, P, tableau) where {T}
     (y + dt*(b₁*k1 + b₄*k4 + b₅*k5 + b₆*k6 + b₇*k7 + b₈*k8 + b₉*k9))::T
 end
 
-
-
-
-
-
-
-
-
-
-
 """
     kernelrk4(f, t, y, dt, ℙ)
 
