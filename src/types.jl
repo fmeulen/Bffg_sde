@@ -181,7 +181,7 @@ end
 struct State{Tx0, TI, Tθ, Tll}
     x0::Tx0
     Z::TI
-    θ::Vector{Tθ}
+    θ::Tθ
     ll::Tll
 end
   

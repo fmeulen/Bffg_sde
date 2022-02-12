@@ -45,7 +45,7 @@ include("generatedata.jl")
 timegrids = set_timegrids(obs, 0.0005)
 
 
-iterations = 15_000  #5_00
+iterations = 2_000  #5_00
 skip_it = 200
 subsamples = 0:skip_it:iterations # for saving paths
 
@@ -54,13 +54,13 @@ priorC = Exponential(150.0)
 priorσy = Normal(1500.0, 500.0)#Uniform(100.0, 3_000.0)
 
 # define parameter moves
-moveC = ParMove([:C], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorC, false)
+moveC = ParMove([:C], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorC, false)#, x-> SA[x.C])
 
-moveσy = ParMove([:σy], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorσy, true)
+moveσy = ParMove([:σy], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorσy, true)#, x-> SA[x.σy])
 
-moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[100.0])), priorC, false)
+moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[100.0])), priorC, false)#, x-> SA[x.C])
 
-moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 10.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)
+moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 10.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)#, x-> SA[x.C, x.σy])
 
 
 # a small program
@@ -69,36 +69,33 @@ moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 10.0], long=[10.0, 1
 verbose = true # if true, surpress output written to console
 
 
-θinit = 140.0
+θinit = 40.0
 ESTσ = true
 
+
+
 if ESTσ
-#  pars = ParInfo([:C, :σy], [false, true])
-  θ = [copy(θinit), 3000.0] 
+  θ = (C=copy(θinit), σy = 1000.0)
   movetarget = moveCσy
+  allparnames = [:C, :σy]
 else
-  θ = [copy(θinit)] # initial value for parameter
+  θ = (; C = copy(θinit) ) # initial value for parameter
   movetarget = moveC
-  end
-ℙ = setpar(movetarget)(θ, ℙ0)
+  allparnames = [:C]
+end
+ℙ = setproperties(ℙ0, θ)
 
-θe = [copy(θinit)]
-move_exploring = moveCᵒ
+
 𝒯 = 5_000.0 # temperature
-ℙe = setproperties(ℙ0, σy = 𝒯)
-ℙe = setpar(move_exploring)(θe, ℙe)
-
-
-
-
+ℙe = setproperties(ℙ0, C=copy(θinit),  σy = 𝒯)
+allparnamese = [:C]
+move_exploring = moveCᵒ
 
 
 
 # pcn pars 
 ρ = 0.95
 ρe = 0.95
-
-
 
 # initialisation of target chain 
 B = BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids);
@@ -118,7 +115,7 @@ XXe, lle = forwardguide(Be, ℙe)(x0, Ze);
 
 
 
-θsave = [copy(θ)]
+θsave = [copy(getpar(allparnames, ℙ))]
 XXsave = [copy(XX)]
 llsave = [ll]
 
@@ -133,24 +130,25 @@ accpare = 0
 accmove = 0
 
 
-exploring = [State(x0, copy(Ze), copy(θe), copy(lle))]
+exploring = [State(x0, copy(Ze), getpar(allparnamese,ℙe), copy(lle))]
 
 for i in 1:iterations
   (i % 500 == 0) && println(i)
   
   # update exploring chain
-  lle, Be, ℙe, accpare_ = parupdate!(Be, ℙe, XXe, move_exploring, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θe, Ze, lle);# θe and XXe may get overwritten
+  
+  lle, Be, ℙe, accpare_ = parupdate!(Be, XXe, move_exploring, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, ℙe, Ze, lle);# θe and XXe may get overwritten
   lle, accinnove_ = pcnupdate!(Be, ℙe, XXe, Zbuffer, Zeᵒ, ρse)(x0, Ze, lle); # Z and XX may get overwritten
-  push!(exploring, State(x0, copy(Ze), copy(θe), copy(lle)))   # collection of samples from exploring chain
+  push!(exploring, State(x0, copy(Ze), getpar(allparnamese, ℙe), copy(lle)))   # collection of samples from exploring chain
   
   # update target chain
   smallworld = rand() > 0.33
   if smallworld
-    ll, B, ℙ, accpar_ = parupdate!(B, ℙ, XX, movetarget, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, θ, Z, ll);# θ and XX may get overwritten
+    ll, B, ℙ, accpar_ = parupdate!(B, XX, movetarget, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, ℙ, Z, ll);# θ and XX may get overwritten
     accmove_ =0
   else
     w = sample(exploring)     # randomly choose from samples of exploring chain
-    ll, ℙ,  accmove_ = exploremoveσfixed!(B, ℙ, Be, ℙe, move_exploring, XX, Zᵒ, w; verbose=verbose)(x0, θ, Z, ll) 
+    ll, ℙ,  accmove_ = exploremoveσfixed!(B, Be, ℙe, move_exploring, XX, Zᵒ, w; verbose=verbose)(x0, ℙ, Z, ll) 
     accpar_ = 0
     #println(ℙ.C ==θ[1])
   end  
@@ -160,7 +158,7 @@ for i in 1:iterations
   # update acceptance counters
   accpar += accpar_; accpare += accpare_; accinnove += accinnove_; accinnov += accinnov_; accmove += accmove_
   # saving iterates
-  push!(θsave, copy(θ))
+  push!(θsave, getpar(allparnames, ℙ))
   push!(llsave, ll)
   (i in subsamples) && push!(XXsave, copy(XX))
   (i % 500 == 0) && push!(XXesave, XXe)

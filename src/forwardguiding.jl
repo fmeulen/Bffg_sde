@@ -56,12 +56,15 @@ function setpar(θ, ℙ, move)
     setproperties(ℙ, tup)
 end  
 
+getpar(names_, ℙ) = SVector(ntuple(i -> getproperty(ℙ, names_[i]), length(names_)))# [getfield(ℙ, names_[i]) for i ∈ eachindex(names_)] 
+
+
+
+
 propose(move) = (θ) -> move.K(θ)
 logpriordiff(move) = (θ, θᵒ) -> sum(logpdf(move.prior, θᵒ) - logpdf(move.prior, θ)) # later double check
 setpar(move) = (θ, ℙ) -> setpar(θ, ℙ, move) 
-
-
-
+getpar(move) = (ℙ) -> getpar(move.names, ℙ) 
 
 function parameterkernel(θ, tuningpars, s) 
     shortrange = rand()>s
@@ -117,8 +120,9 @@ checkstate(B, ℙ) = (w) -> checkstate(w,B, ℙ)
 
 
 # par updating, θ and XX are overwritten when accepted
-function parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)
+function parupdate!(B, ℙ, x0, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)
     accpar_ = false
+    θ =  getpar(move)(ℙ)  #move.par(ℙ)
     θᵒ = propose(move)(θ)   
     ℙᵒ = setpar(move)(θᵒ, ℙ)    
     if move.recomputeguidingterm        
@@ -132,7 +136,7 @@ function parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, obsvals, S, AuxType, t
     if log(rand()) < llᵒ-ll + logpriordiff(move)(θ, θᵒ)
       @. XX = XXᵒ
       ll = llᵒ
-      @. θ = θᵒ
+#      @. θ = θᵒ
       B = Bᵒ
       ℙ = ℙᵒ
       accpar_ = true
@@ -141,7 +145,7 @@ function parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, obsvals, S, AuxType, t
     ll, B, ℙ, accpar_
 end
 
-parupdate!(B, ℙ, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=verbose)
+parupdate!(B, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)  = (x0, ℙ, Z, ll) -> parupdate!(B, ℙ, x0, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=verbose)
 
 
 # innov updating, XX and Z may get overwritten
@@ -164,16 +168,18 @@ end
 pcnupdate!(B, ℙ, XX, Zbuffer, Zᵒ, ρs; verbose=true) = (x0, Z, ll) ->    pcnupdate!(B, ℙ, x0, Z, ll, XX, Zbuffer, Zᵒ, ρs; verbose=verbose)
 
 # this is what we want 
-function exploremoveσfixed!(B, ℙ, Be, ℙe, move , x0, θ, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
+function exploremoveσfixed!(B, ℙ, Be, ℙe, move , x0, Z, ll, XX, Zᵒ, w; verbose=true) # w::State proposal from exploring chain
     accswap_ = false
     # propose from exploring chain in target chain
+    θ =   getpar(move)(ℙ)  #move.par(ℙ)
     copy!(Zᵒ, w.Z) 
     θᵒ = copy(w.θ)
     ℙᵒ = setpar(move)(θᵒ, ℙ) 
     XXᵒ, llᵒ = forwardguide(B, ℙᵒ)(x0, Zᵒ)
         
     # compute log proposalratio, numerator should be πᵗ(θ, Z)
-    ℙeprop = setpar(move)([θ[1]], ℙe)
+    #ℙeprop = setpar(move)([θ[1]], ℙe)
+    ℙeprop = setpar(move)(θ, ℙe)
      _, llproposal = forwardguide(Be, ℙeprop)(x0, Z)
     # denominator should be πᵗ(θᵒ, Zᵒ)
     # ℙeᵒ = setpar(move)(θᵒ, ℙe)
@@ -193,14 +199,11 @@ function exploremoveσfixed!(B, ℙ, Be, ℙe, move , x0, θ, Z, ll, XX, Zᵒ, w
    #     @show dprior
         println()
 
-
         @. XX = XXᵒ
         copy!(Z, Zᵒ)
         ll = llᵒ
         ℙ = ℙᵒ
-        #@. θ = θᵒ
-        θ[1] = θᵒ[1]
-         !(ℙ.C ==θ[1]) && @error "inconsistency occured in moveσfixed"
+
         accswap_ = true
         !verbose && print("✓")  
 
@@ -208,7 +211,7 @@ function exploremoveσfixed!(B, ℙ, Be, ℙe, move , x0, θ, Z, ll, XX, Zᵒ, w
     ll, ℙ, accswap_
 end
 
-exploremoveσfixed!(B, ℙ, Be, ℙe, move, XX, Zᵒ, w; verbose=true) = (x0, θ, Z, ll) ->  exploremoveσfixed!(B, ℙ,  Be, ℙe,move, x0, θ, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
+exploremoveσfixed!(B, Be, ℙe, move, XX, Zᵒ, w; verbose=true) = (x0, ℙ, Z, ll) ->  exploremoveσfixed!(B, ℙ,  Be, ℙe,move, x0, Z, ll, XX, Zᵒ, w; verbose=verbose) # w::State proposal from exploring chain
 
 
 
