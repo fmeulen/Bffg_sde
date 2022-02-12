@@ -33,7 +33,7 @@ include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/types.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/forwardguiding.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/backwardfiltering.jl")
 include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/utilities.jl")
-
+include("/Users/frankvandermeulen/.julia/dev/Bffg_sde/src/parameter_path_updates.jl")
 include("plotting.jl")
 
 ################################  TESTING  ################################################
@@ -69,8 +69,8 @@ moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 10.0], long=[10.0, 1
 verbose = true # if true, surpress output written to console
 
 
-θinit = 40.0
-ESTσ = true
+θinit = 100.0
+ESTσ = false #true
 
 
 
@@ -86,7 +86,7 @@ end
 ℙ = setproperties(ℙ0, θ)
 
 
-𝒯 = 5_000.0 # temperature
+𝒯 = 4_000.0 # temperature
 ℙe = setproperties(ℙ0, C=copy(θinit),  σy = 𝒯)
 allparnamese = [:C]
 move_exploring = moveCᵒ
@@ -171,8 +171,19 @@ end
 
 # final imputed path
 plot_all(ℙ, timegrids, XXsave[end])
+
+obstimes = getfield.(obs, :t)
+
+plot_all(ℙ, Xf, obstimes, obsvals, timegrids, XXsave[1])
+savefig(joinpath(outdir,"guidedpath_firstiteration.png"))
 plot_all(ℙ, Xf, obstimes, obsvals, timegrids, XXsave[end])
 savefig(joinpath(outdir,"guidedpath_finaliteration.png"))
+
+plot_all(ℙ, Xf, obstimes, obsvals, timegrids, XXesave[1])
+savefig(joinpath(outdir,"guidedpath_firstiteration_exploring.png"))
+plot_all(ℙ, Xf, obstimes, obsvals, timegrids, XXesave[end])
+savefig(joinpath(outdir,"guidedpath_finaliteration_exploring.png"))
+
 
 #
 println("Target chain: accept% innov ", 100*accinnov/iterations,"%")
@@ -198,10 +209,11 @@ pa = plot(getindex.(θsave,1), label="target", legend=:top)
 hline!(pa, [ℙ0.C], label="",color=:black)
 plot!(pa, getindex.(θesave,1), label="exploring")
 
-
-pb = plot(getindex.(θsave,2), label="target", legend=:top)
-hline!(pb, [ℙ0.σy], label="",color=:black)
-plot(pa, pb, layout = @layout [a; b])  
+if ESTσ 
+  pb = plot(getindex.(θsave,2), label="target", legend=:top)
+  hline!(pb, [ℙ0.σy], label="",color=:black)
+  plot(pa, pb, layout = @layout [a; b])  
+end
 #savefig(joinpath(outdir,"traceplots.png"))
 
 
