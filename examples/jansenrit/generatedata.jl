@@ -5,8 +5,8 @@ model= [:jr, :jr3][1]
 
 if model == :jr
  # θ0 =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
- # θ0 =[3.25, 100.0, 22.0, 50.0, 185.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # this gives bimodality
-  θ0 =[3.25, 100.0, 22.0, 50.0, 530.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 5.0]  # also try this one
+  θ0 =[3.25, 100.0, 22.0, 50.0, 185.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # this gives bimodality
+ # θ0 =[3.25, 100.0, 22.0, 50.0, 530.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 5.0]  # also try this one
   ℙ0 = JansenRitDiffusion(θ0...)
   @show properties(ℙ0)
   AuxType = JansenRitDiffusionAux
@@ -89,11 +89,12 @@ S = DE(Vern7())
 # @btime  BackwardFilter(S, ℙ, AuxType, obs, timegrids);
 @time forwardguide(x0, ℙ, Z, B);
 
-# using Profile
-# using ProfileView
-# Profile.init()
-# Profile.clear()
-# S = DE(Vern7())#S = Vern7direct();
-# @profile  BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids, x0, false);
-# ProfileView.view()
+using Profile
+using ProfileView
+Profile.init()
+Profile.clear()
+S = DE(Vern7())#S = Vern7direct();
+@profile  BackwardFilter(S, ℙ, AuxType, obs, obsvals, timegrids);
+@profile parupdate!(B, XX, movetarget, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, ℙ, Z, ll);# θ and XX may get overwritten
+ProfileView.view()
 end

@@ -116,8 +116,9 @@ Zᵒ = deepcopy(Z)
 
 
 
-moveλ = ParMove([:λ], parameterkernel((short=[.2], long=[1.0]); s=0.0), Uniform(0.0, 1000.0), true)
-moveλ = ParMove([:α], parameterkernel((short=[.2], long=[1.0]); s=0.2), Uniform(0.0, 1000.0), true)
+move = ParMove([:β], parameterkernel((short=[.2], long=[1.0]); s=0.0), Uniform(0.0, 1000.0), true)
+allparnames =[:β]
+#moveλ = ParMove([:β], parameterkernel((short=[.2], long=[1.0]); s=0.2), Uniform(0.0, 1000.0), true)
 λinit = 55.0
 θ = [copy(λinit)] # initial value for parameter
 ℙ = setproperties(ℙ0, λ=λinit)
@@ -133,23 +134,22 @@ iterations = 1_000
 skip_it = 200
 subsamples = 0:skip_it:iterations # for saving paths
 
-samples = [State(x0, copy(Z), copy(θ), copy(ll))]
+samples = [State(x0, copy(Z), getpar(allparnames, ℙ), copy(ll))]
 for i in 1:iterations
   (i % 500 == 0) && println(i)
   
-#  ll, B, ℙ, accpar_ = parupdate!(B, ℙ, XX, moveλ, obs, S, timegrids; verbose=verbose)(x0, θ, Z, ll);
-  ll, B, ℙ, accpar_ = parupdate!(B, ℙ, x0, θ, Z, ll, XX, moveλ, obs, S,  timegrids)
-
+  ll, B, ℙ, accpar_ = parupdate!(B, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, ℙ, Z, ll);
   ll, accinnove_ = pcnupdate!(B, ℙ, XX, Zbuffer, Zᵒ, ρs)(x0, Z, ll); 
-  push!(samples, State(x0, copy(Z), copy(θ), copy(ll)))   # collection of samples from exploring chain
-  (i in subsamples) && push!(XXsave, deepcopy(XX))
+  push!(samples, State(x0, copy(Z), getpar(allparnames, ℙ), copy(ll)))  
+  (i in subsamples) && push!(XXsave, copy(XX))
 end
 
 θs = getfield.(samples, :θ)
 plot(first.(θs))    
+hline!([ℙ0.μ])
 hline!([ℙ0.α])
 hline!([ℙ0.λ])
-
+hline!([ℙ0.β])
 
 path = vcat(XXsave[end]...)
 pp = plot(first.(path))
@@ -159,29 +159,33 @@ plot!(pp, first.(path1))
 
 
 
-function parupdate!(B, ℙ::FV, x0, θ, Z, ll, XX, move, obs, S, timegrids; verbose=true)
-    accpar_ = false
-    θᵒ = propose(move)(θ)   
-    ℙᵒ = setpar(move)(θᵒ, ℙ)    
-    if move.recomputeguidingterm        
-        Bᵒ =BackwardFilter(S, auxprocesses(ℙᵒ, obs), obs, timegrids)
-    else 
-        Bᵒ = B
-    end
-    XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ)(x0, Z)
-    !verbose && printinfo(ll, llᵒ, "par") 
 
-    if log(rand()) < llᵒ-ll + logpriordiff(move)(θ, θᵒ)
-      @. XX = XXᵒ
-      ll = llᵒ
-      @. θ = θᵒ
-      B = Bᵒ
-      ℙ = ℙᵒ
-      accpar_ = true
-      !verbose && print("✓")  
-    end
-    ll, B, ℙ, accpar_
+function parupdate!(B, ℙ::FV, x0, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)
+  accpar_ = false
+  θ =  getpar(move)(ℙ)  #move.par(ℙ)
+  θᵒ = propose(move)(θ)   
+  ℙᵒ = setpar(move)(θᵒ, ℙ)    
+  if move.recomputeguidingterm        
+    Bᵒ =BackwardFilter(S, auxprocesses(ℙᵒ, obs), obs, timegrids)
+  else 
+      Bᵒ = B
+  end
+  XXᵒ, llᵒ = forwardguide(Bᵒ, ℙᵒ)(x0, Z)
+  !verbose && printinfo(ll, llᵒ, "par") 
+
+  if log(rand()) < llᵒ-ll + logpriordiff(move)(θ, θᵒ)
+    @. XX = XXᵒ
+    ll = llᵒ
+#      @. θ = θᵒ
+    B = Bᵒ
+    ℙ = ℙᵒ
+    accpar_ = true
+    !verbose && print("✓")  
+  end
+  ll, B, ℙ, accpar_
 end
 
-parupdate!(B, ℙ::FV, XX, move, obs, S, timegrids; verbose=true)  = (x0, θ, Z, ll) -> parupdate!(B, ℙ, x0, θ, Z, ll, XX, move, obs, S,  timegrids; verbose=verbose)
+parupdate!(B, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=true)  = (x0, ℙ, Z, ll) -> parupdate!(B, ℙ, x0, Z, ll, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=verbose)
 
+
+     
