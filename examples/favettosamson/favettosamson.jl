@@ -43,7 +43,7 @@ wienertype(::FV) = Wiener{ℝ{2}}()
 
 ####### simulate some data 
 
-ℙ0 = FV(217.0, 5.0, 6.0, 3.0, 0.3, 1.4, t-> t/(1+0.5*t)^2)
+ℙ0 = FV(117.0, 5.0, 6.0, 3.0, 0.3, 1.4, t-> t/(1+0.5*t)^2)
 
 T = 10.0
 x0 = SA[0.0, 0.0]
@@ -60,7 +60,8 @@ X=Xf
 p = plot(X.tt, getindex.(X.yy,1), label="1")
 plot!(p, X.tt, getindex.(X.yy,2), label="2")
 plot!(p, obstimes, map(x->x[1], obsvals), seriestype=:scatter, markersize=2.5, label="obs")
-    
+
+savefig(joinpath(outdir,"forward_and_observations.png"))
 
 ####### BFFG
 
@@ -112,51 +113,6 @@ plot(p1, p2, l= @layout [a b])
 Zbuffer = deepcopy(Z)
 Zᵒ = deepcopy(Z)
 ρs = zeros(length(timegrids))
-
-
-
-
-move = ParMove([:β], parameterkernel((short=[.2], long=[1.0]); s=0.0), Uniform(0.0, 1000.0), true)
-allparnames =[:β]
-#moveλ = ParMove([:β], parameterkernel((short=[.2], long=[1.0]); s=0.2), Uniform(0.0, 1000.0), true)
-λinit = 55.0
-θ = [copy(λinit)] # initial value for parameter
-ℙ = setproperties(ℙ0, λ=λinit)
-ℙ̃s = auxprocesses(ℙ, obs)
-
-
-B = BackwardFilter(S, ℙ̃s, obs, timegrids)
-Z = Innovations(timegrids, ℙ);
-XX, ll = forwardguide(B, ℙ)(x0, Z);
-XXsave = [XX]
-
-iterations = 1_000  
-skip_it = 200
-subsamples = 0:skip_it:iterations # for saving paths
-
-samples = [State(x0, copy(Z), getpar(allparnames, ℙ), copy(ll))]
-for i in 1:iterations
-  (i % 500 == 0) && println(i)
-  
-  ll, B, ℙ, accpar_ = parupdate!(B, XX, move, obs, obsvals, S, AuxType, timegrids; verbose=verbose)(x0, ℙ, Z, ll);
-  ll, accinnove_ = pcnupdate!(B, ℙ, XX, Zbuffer, Zᵒ, ρs)(x0, Z, ll); 
-  push!(samples, State(x0, copy(Z), getpar(allparnames, ℙ), copy(ll)))  
-  (i in subsamples) && push!(XXsave, copy(XX))
-end
-
-θs = getfield.(samples, :θ)
-plot(first.(θs))    
-hline!([ℙ0.μ])
-hline!([ℙ0.α])
-hline!([ℙ0.λ])
-hline!([ℙ0.β])
-
-path = vcat(XXsave[end]...)
-pp = plot(first.(path))
-path1 = vcat(XXsave[1]...)
-plot!(pp, first.(path1))
-
-
 
 
 
