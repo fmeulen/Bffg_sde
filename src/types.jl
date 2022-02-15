@@ -9,11 +9,6 @@ struct DE{T} <: Solver
     solvertype::T
 end
 
-# struct ParInfo
-#     names::Vector{Symbol}
-#     recomputeguidingterm::Vector{Bool}
-# end
-  
 """
     ParMove{Tn, Tkernel, Tp, Tr}
 
@@ -176,7 +171,6 @@ struct BackwardFilter{T, Th0}
         new{eltype(Ms), typeof(h0)}(Ms, h0)
     end
 end  
-
 
 struct State{Tx0, TI, Tθ, Tll}
     x0::Tx0

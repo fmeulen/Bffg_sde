@@ -87,55 +87,56 @@ end
 
 
 
-PLOT = false 
+# PLOT = false 
 
-if PLOT
-using RCall
-#--------- plotting 
-extractcomp(v,i) = map(x->x[i], v)
-d = dim(ℙ)
-J = length(XX[1].tt)
-iterates = [Any[s, XXsave[i].tt[j], k, XXsave[i].yy[j][k]] for k in 1:d, j in 1:J, (i,s) in enumerate(subsamples) ][:]
-# FIXME, J need not be constant
+# if PLOT
+# using RCall
+# #--------- plotting 
+# extractcomp(v,i) = map(x->x[i], v)
+# d = dim(ℙ)
+# J = length(XX[1].tt)
+# iterates = [Any[s, XXsave[i].tt[j], k, XXsave[i].yy[j][k]] for k in 1:d, j in 1:J, (i,s) in enumerate(subsamples) ][:]
+# # FIXME, J need not be constant
 
 
-df_iterates = DataFrame(iteration=extractcomp(iterates,1),time=extractcomp(iterates,2), component=extractcomp(iterates,3), value=extractcomp(iterates,4))
-CSV.write(outdir*"iterates.csv",df_iterates)
+# df_iterates = DataFrame(iteration=extractcomp(iterates,1),time=extractcomp(iterates,2), component=extractcomp(iterates,3), value=extractcomp(iterates,4))
+# CSV.write(outdir*"iterates.csv",df_iterates)
 
 ################ plotting in R ############
-using RCall
-dd = df_iterates
 
-@rput dd
-#@rput obs_scheme
-@rput outdir
+# #using RCall
+# dd = df_iterates
 
-R"""
-library(ggplot2)
-library(tidyverse)
-theme_set(theme_bw(base_size = 13))
+# @rput dd
+# #@rput obs_scheme
+# @rput outdir
 
-dd$component <- as.factor(dd$component)
-dd <- dd %>% mutate(component=fct_recode(component,'component 1'='1',
-              'component 2'='2', 'component 3'='3', 'component 4'='4','component 5'='5','component 6'='6'))
+# R"""
+# library(ggplot2)
+# library(tidyverse)
+# theme_set(theme_bw(base_size = 13))
 
-# make figure
-p <- ggplot(mapping=aes(x=time,y=value,colour=iteration),data=dd) +
-  geom_path(aes(group=iteration)) + #geom_hline(aes(yintercept=trueval)) +
-  facet_wrap(~component,scales='free_y')+
-  scale_colour_gradient(low='green',high='blue')+ylab("")
-show(p)
+# dd$component <- as.factor(dd$component)
+# dd <- dd %>% mutate(component=fct_recode(component,'component 1'='1',
+#               'component 2'='2', 'component 3'='3', 'component 4'='4','component 5'='5','component 6'='6'))
 
-# write to pdf
-fn <- paste0(outdir,"bridges.pdf")
-pdf(fn,width=7,height=5)
-show(p)
-dev.off()    
+# # make figure
+# p <- ggplot(mapping=aes(x=time,y=value,colour=iteration),data=dd) +
+#   geom_path(aes(group=iteration)) + #geom_hline(aes(yintercept=trueval)) +
+#   facet_wrap(~component,scales='free_y')+
+#   scale_colour_gradient(low='green',high='blue')+ylab("")
+# show(p)
 
-"""
+# # write to pdf
+# fn <- paste0(outdir,"bridges.pdf")
+# pdf(fn,width=7,height=5)
+# show(p)
+# dev.off()    
+
+# """
 
 
-end
+# end
 
 
 

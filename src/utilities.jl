@@ -1,3 +1,7 @@
+function printinfo(ll, llᵒ, s::String) 
+    println(s * " update. ll $ll; llᵒ $llᵒ, difference: ",round(llᵒ-ll;digits=3)) 
+    #println()
+end
 
 say(what) = run(`osascript -e "say \"$(what)\""`, wait=false)
 
@@ -21,12 +25,7 @@ function convert_PνC_to_HFC(P,ν,C)
     Htransform(H, P\ν, C)
 end   
 
-"""
-    extract parameter vector from guided process
-"""
-getpar(M::Message, ind::Vector{Symbol}) = getpar(M.ℙ, ind::Vector{Symbol})  
 
-lastval(X::SamplePath) = X.yy[end]
 
 """
     init_HFC(v, L, d; ϵ=0.01)

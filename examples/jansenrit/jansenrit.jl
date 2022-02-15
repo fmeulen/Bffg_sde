@@ -1,17 +1,16 @@
-# target process
 struct JansenRitDiffusion{T} <: ContinuousTimeProcess{ℝ{6}}
-    A::T
-    a::T
-    B::T 
-    b::T 
-    C::T
-    α1::T 
-    α2::T
-    νmax::T
-    v::T
-    r::T
-    μy::T
-    σy::T
+    A::T    # excitatory: maximal amplitudes of the post-synaptic potentials (in millivolts)
+    a::T    # excitatory: characteristic for delays of the synaptic transmission
+    B::T    # inhibitory: maximal amplitudes of the post-synaptic potentials (in millivolts)
+    b::T    # inhibitory: characteristic for delays of the synaptic transmission
+    C::T    # connectivity constant (C1=C)   
+    α1::T   # C2=α1C
+    α2::T   # C3=C4=α2C
+    e0::T   # half of the maximum firing rate of neurons families
+    v0::T   # firing threshold (excitability of the populations)
+    r::T    # slope of the sigmoid at v0;
+    μ::T    # mean of average firing rate
+    σ::T    # sd of average firing rate (d p(t) = μ dt + σ d Wₜ)
 end
 
 #  auxiliary process
@@ -23,11 +22,11 @@ struct JansenRitDiffusionAux{T,Tobs,Tx1} <: ContinuousTimeProcess{ℝ{6}}
     C::T
     α1::T 
     α2::T
-    νmax::T
-    v::T
+    e0::T
+    v0::T
     r::T
-    μy::T
-    σy::T
+    μ::T
+    σ::T
     T::Float64  # observation time
     vT::Tobs # observation value
     x1::Tx1  # LinearInterpolation object of deterministic solution of x1 on interpolating time grid
@@ -35,11 +34,12 @@ struct JansenRitDiffusionAux{T,Tobs,Tx1} <: ContinuousTimeProcess{ℝ{6}}
 end
 
 JansenRitDiffusionAux(T, vT, x1, guidingterm_with_x1, P::JansenRitDiffusion) = 
-        JansenRitDiffusionAux(P.A, P.a, P.B, P.b, P.C, P.α1, P.α2, P.νmax, P.v, P.r, P.μy, P.σy, T, vT, x1, guidingterm_with_x1)
+        JansenRitDiffusionAux(P.A, P.a, P.B, P.b, P.C, P.α1, P.α2, P.e0, P.v0, P.r, P.μ, P.σ, T, vT, x1, guidingterm_with_x1)
 
 
-sigm(x, P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = P.νmax / (1.0 + exp(P.r*(P.v - x)))
-μy(t, P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) =  P.a * P.A * P.μy #constant
+sigm(x, P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = 2.0P.e0 / (1.0 + exp(P.r*(P.v0 - x)))
+μy(P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) =  P.a * P.A * P.μ #constant
+σy(P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) =  P.a * P.A * P.σ #constant
 C1(P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = P.C
 C2(P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = P.α1*P.C
 C3(P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = P.α2*P.C
@@ -47,16 +47,13 @@ C4(P::Union{JansenRitDiffusion, JansenRitDiffusionAux}) = P.α2*P.C
 
 
 function Bridge.b(t, x, P::JansenRitDiffusion)
-    SA[
-        x[4],
-        x[5],
-        x[6],
+    SA[  x[4], x[5], x[6],
         P.A*P.a*(sigm(x[2] - x[3], P)) - 2P.a*x[4] - P.a*P.a*x[1],
-        μy(t, P) + P.A*P.a*C2(P)*sigm(C1(P)*x[1], P) - 2P.a*x[5] - P.a*P.a*x[2],
+        μy(P) + P.A*P.a*C2(P)*sigm(C1(P)*x[1], P) - 2P.a*x[5] - P.a*P.a*x[2],
         P.B*P.b*(C4(P)*sigm(C3(P)*x[1], P)) - 2P.b*x[6] - P.b*P.b*x[3]]
 end
 
-Bridge.σ(t, x, P::JansenRitDiffusion) = SA[0.0, 0.0, 0.0, 0.0, P.σy, 0.0]
+Bridge.σ(t, x, P::JansenRitDiffusion) = SA[0.0, 0.0, 0.0, 0.0, σy(P), 0.0]
 
 wienertype(::JansenRitDiffusion) = Wiener()
 
@@ -65,20 +62,20 @@ Bridge.constdiff(::JansenRitDiffusionAux) = true
 dim(::JansenRitDiffusion) = 6
 dim(::JansenRitDiffusionAux) = 6 
 
-Bridge.σ(t, P::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 0.0, P.σy, 0.0]
+Bridge.σ(t, P::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0, 0.0, σy(P), 0.0]
 
 Bridge.a(t, P::JansenRitDiffusionAux) =   @SMatrix [  0.0 0.0 0.0 0.0 0.0 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0;
-                                                    0.0 0.0 0.0 0.0 P.σy^2 0.0;
+                                                    0.0 0.0 0.0 0.0 σy(P)^2 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0]
 
 Bridge.a(t, x, P::JansenRitDiffusion) =   @SMatrix [  0.0 0.0 0.0 0.0 0.0 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0;
-                                                    0.0 0.0 0.0 0.0 P.σy^2 0.0;
+                                                    0.0 0.0 0.0 0.0 σy(P)^2 0.0;
                                                     0.0 0.0 0.0 0.0 0.0 0.0]
 
 
@@ -92,7 +89,7 @@ function Bridge.B(t, P::JansenRitDiffusionAux)
                 0.0 0.0 -P.b^2 0.0 0.0 -2.0*P.b]
 end
 
-Bridge.β(t, P::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0,  P.A * P.a * sigm(P.vT, P), μy(t,P), 0.0 ]
+Bridge.β(t, P::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0,  P.A * P.a * sigm(P.vT, P), μy(P), 0.0 ]
 #Bridge.β(t, P::JansenRitDiffusionAux) = SA[0.0, 0.0, 0.0,  0.0, 0.0, 0.0 ]
 
 Bridge.b(t, x, P::JansenRitDiffusionAux) = Bridge.B(t,P) * x + Bridge.β(t,P)

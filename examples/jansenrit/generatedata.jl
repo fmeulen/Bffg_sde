@@ -4,15 +4,15 @@
 model= [:jr, :jr3][1]
 
 if model == :jr
-  θ0 =[3.25, 100.0, 22.0, 50.0, 95.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
- # θ0 =[3.25, 100.0, 22.0, 50.0, 185.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 2000.0]  # this gives bimodality
+  θ0 =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 6.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  #θ0 =[3.25, 100.0, 22.0, 50.0, 185.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 6.0]  # this gives bimodality
  # θ0 =[3.25, 100.0, 22.0, 50.0, 530.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 5.0]  # also try this one
   ℙ0 = JansenRitDiffusion(θ0...)
   @show properties(ℙ0)
   AuxType = JansenRitDiffusionAux
 end
 if model == :jr3
-  θ0 =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.01, 2000.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
+  θ0 =[3.25, 100.0, 22.0, 50.0, 135.0, 0.8, 0.25, 5.0, 6.0, 0.56, 200.0, 0.01, 200.0, 1.0]  # except for μy as in Buckwar/Tamborrino/Tubikanec#
   ℙ0 = JansenRitDiffusion3(θ0...)
   AuxType = JansenRitDiffusionAux3
 end
@@ -27,7 +27,7 @@ m,  = size(L)
 T = 2.0 #1.0
 x00 = @SVector zeros(6)
 W = sample((-1.0):0.0001:T, wienertype(ℙ0))                        #  sample(tt, Wiener{ℝ{1}}())
-Xf_prelim = solve(Euler(), x00, W, ℙ0)
+Xf_prelim = Bridge.solve(Bridge.Euler(), x00, W, ℙ0)
 # drop initial nonstationary behaviour
 Xf = SamplePath(Xf_prelim.tt[10001:end], Xf_prelim.yy[10001:end])
 x0 = Xf.yy[1]
@@ -68,16 +68,12 @@ Z = Innovations(timegrids, ℙ0);
 
 # check
 XX, ll = forwardguide(B, ℙ0)(x0, Z);
-
 pG = plot_all(ℙ0, timegrids, XX)
 l = @layout [a;b]
 plot(pF, pG, layout=l)
 savefig(joinpath(outdir,"forward_guidedinitial_separate.png"))
 
 plot_all(ℙ0,Xf,  obstimes, obsvals, timegrids, XX)
-
-
-
 savefig(joinpath(outdir,"forward_guidedinitial_overlaid.png"))
 
 

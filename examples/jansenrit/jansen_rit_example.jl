@@ -3,11 +3,12 @@ cd(wdir)
 outdir= joinpath(wdir, "out")
 
 using Bridge, StaticArrays, Distributions
-using Test, Statistics, Random, LinearAlgebra
+#using Test, Statistics, 
+using Random, LinearAlgebra
 using Bridge.Models
-using DelimitedFiles
-using DataFrames
-using CSV
+#using DelimitedFiles
+#using DataFrames
+# using CSV
 #using ForwardDiff
 using DifferentialEquations
 using Setfield
@@ -16,12 +17,12 @@ using ConstructionBase
 using Interpolations
 using IterTools
 using ProfileView
-using RCall
-using SparseArrays
-using Parameters
+#using RCall
+#using SparseArrays
+#using Parameters
 
-import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, Euler, solve, solve!
-import ForwardDiff: jacobian
+#import Bridge: R3, IndexedTime, llikelihood, kernelr3, constdiff, Euler, solve, solve!
+import Bridge: constdiff
 
 sk = 0 # skipped in evaluating loglikelihood
 
@@ -51,16 +52,16 @@ subsamples = 0:skip_it:iterations # for saving paths
 
 # define priors
 priorC = Exponential(150.0)
-priorσy = Normal(1500.0, 500.0)#Uniform(100.0, 3_000.0)
+priorσ = Normal(1500.0, 500.0)#Uniform(100.0, 3_000.0)
 
 # define parameter moves
-moveC = ParMove([:C], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorC, false)#, x-> SA[x.C])
+moveC = ParMove([:C], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorC, false)
 
-moveσy = ParMove([:σy], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorσy, true)#, x-> SA[x.σy])
+moveσ = ParMove([:σ], parameterkernel((short=[3.0], long=[10.0]); s=0.0), priorσy, true)
 
-moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[100.0])), priorC, false)#, x-> SA[x.C])
+moveCᵒ = ParMove([:C], parameterkernel((short=[40.0], long=[100.0])), priorC, false)
 
-moveCσy = ParMove([:C, :σy], parameterkernel((short=[2.0, 10.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)#, x-> SA[x.C, x.σy])
+moveCσ = ParMove([:C, :σ], parameterkernel((short=[2.0, 10.0], long=[10.0, 10.0]); s=0.0), product_distribution([priorC, priorσy]), true)
 
 
 # a small program
@@ -77,7 +78,7 @@ ESTσ = false #true
 if ESTσ
   θ = (C=copy(θinit), σy = 1000.0)
   movetarget = moveCσy
-  allparnames = [:C, :σy]
+  allparnames = [:C, :σ]
 else
   θ = (; C = copy(θinit) ) # initial value for parameter
   movetarget = moveC
@@ -87,7 +88,7 @@ end
 
 
 𝒯 = 4_000.0 # temperature
-ℙe = setproperties(ℙ0, C=copy(θinit),  σy = 𝒯)
+ℙe = setproperties(ℙ0, C=copy(θinit),  σ = 𝒯)
 allparnamese = [:C]
 move_exploring = moveCᵒ
 
@@ -211,10 +212,10 @@ plot!(pa, getindex.(θesave,1), label="exploring")
 
 if ESTσ 
   pb = plot(getindex.(θsave,2), label="target", legend=:top)
-  hline!(pb, [ℙ0.σy], label="",color=:black)
+  hline!(pb, [ℙ0.σ], label="",color=:black)
   plot(pa, pb, layout = @layout [a; b])  
 end
-#savefig(joinpath(outdir,"traceplots.png"))
+savefig(joinpath(outdir,"traceplots.png"))
 
 
 

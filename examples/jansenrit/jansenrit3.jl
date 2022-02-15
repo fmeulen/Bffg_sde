@@ -1,3 +1,5 @@
+# just like JansenRit, except that there is diffusivity on components 4, 5 and 6
+
 # target process
 struct JansenRitDiffusion3{T} <: ContinuousTimeProcess{ℝ{6}}
     A::T
@@ -7,8 +9,8 @@ struct JansenRitDiffusion3{T} <: ContinuousTimeProcess{ℝ{6}}
     C::T
     α1::T 
     α2::T
-    νmax::T
-    v::T
+    e0::T
+    v0::T
     r::T
     μy::T
     σx::T
@@ -25,8 +27,8 @@ struct JansenRitDiffusionAux3{T,Tobs} <: ContinuousTimeProcess{ℝ{6}}
     C::T
     α1::T 
     α2::T
-    νmax::T
-    v::T
+    e0::T
+    v0::T
     r::T
     μy::T
     σx::T
@@ -37,9 +39,9 @@ struct JansenRitDiffusionAux3{T,Tobs} <: ContinuousTimeProcess{ℝ{6}}
 end
 
 JansenRitDiffusionAux3(T, vT, ℙ::JansenRitDiffusion3) = JansenRitDiffusionAux3(ℙ.A, ℙ.a, ℙ.B, ℙ.b, ℙ.C, ℙ.α1, ℙ.α2, 
-ℙ.νmax, ℙ.v, ℙ.r, ℙ.μy, ℙ.σx, ℙ.σy, ℙ.σz, T, vT)
+ℙ.e0, ℙ.v0, ℙ.r, ℙ.μy, ℙ.σx, ℙ.σy, ℙ.σz, T, vT)
 
-sigm(x, ℙ::Union{JansenRitDiffusion3, JansenRitDiffusionAux3}) = ℙ.νmax / (1.0 + exp(ℙ.r*(ℙ.v - x)))
+sigm(x, ℙ::Union{JansenRitDiffusion3, JansenRitDiffusionAux3}) = 2.0ℙ.e0 / (1.0 + exp(ℙ.r*(ℙ.v0 - x)))
 μy(t, ℙ::Union{JansenRitDiffusion3, JansenRitDiffusionAux3}) =  ℙ.a * ℙ.A * ℙ.μy #constant
 C1(ℙ::JansenRitDiffusion3) = ℙ.C
 C2(ℙ::JansenRitDiffusion3) = ℙ.α1*ℙ.C
